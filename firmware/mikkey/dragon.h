@@ -91,8 +91,9 @@ static void physCalibrate() {
   int got = 0;
   for (int i = 0; i < 16; i++) {
     if (M5.Imu.getAccel(&fx, &fy, &fz)) {
-      sxx += (int32_t)(fy * 1000);
-      syy += (int32_t)(fx * 1000);
+      // measured on this unit: ax = screen-right, ay = screen-down (rot 1)
+      sxx += (int32_t)(fx * 1000);
+      syy += (int32_t)(fy * 1000);
       szz += (int32_t)(fz * 1000);
       got++;
     }
@@ -102,10 +103,8 @@ static void physCalibrate() {
   int32_t bx = sxx / got, by = syy / got, bz = szz / got;
   int32_t mag = abs(bx) + abs(by) + abs(bz);
   if (mag > 700 && mag < 1600) {
-    // sign auto-fix: at boot the device rests screen-up or bottom-edge-down
-    if (abs(by) >= abs(bx) && by < -250) B.sy = -1;
-    if (abs(bx) > abs(by) && bx < -250) B.sx = -1;
-    B.gfx = bx * B.sx; B.gfy = by * B.sy; B.gfz = bz;
+    // signs are hard-measured on this unit — no runtime auto-fix
+    B.gfx = bx; B.gfy = by; B.gfz = bz;
     if (abs(B.gfx) < 250 && abs(B.gfy) < 250) { B.gfy = 1000; }
   } else {
     B.gfy = 1000;
@@ -116,11 +115,22 @@ static void physCalibrate() {
   Serial.printf("dbg imu cal g=(%ld,%ld) edge=%d\n", (long)B.gfx, (long)B.gfy, B.edge);
 }
 
+static int32_t dbgAx = 0, dbgAy = 0, dbgAz = 0;
+
 static void physSample() {
   float fx, fy, fz;
   if (!M5.Imu.getAccel(&fx, &fy, &fz)) return;
-  int32_t rx = (int32_t)(fy * 1000) * B.sx;
-  int32_t ry = (int32_t)(fx * 1000) * B.sy;
+  dbgAx = (int32_t)(fx * 1000); dbgAy = (int32_t)(fy * 1000); dbgAz = (int32_t)(fz * 1000);
+  static uint32_t dbgT = 0;
+  if (millis() - dbgT > 2000) {
+    dbgT = millis();
+    Serial.printf("dbg acc raw ax=%ld ay=%ld az=%ld -> gf=(%ld,%ld) edge=%d\n",
+                  (long)dbgAx, (long)dbgAy, (long)dbgAz,
+                  (long)B.gfx, (long)B.gfy, B.edge);
+  }
+  // measured on this unit: ax = screen-right, ay = screen-down (rot 1)
+  int32_t rx = (int32_t)(fx * 1000);
+  int32_t ry = (int32_t)(fy * 1000);
   int32_t rz = (int32_t)(fz * 1000);
   B.gfx += (rx - B.gfx) >> 3;
   B.gfy += (ry - B.gfy) >> 3;
