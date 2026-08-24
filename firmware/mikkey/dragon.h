@@ -277,14 +277,7 @@ static void lifePick() {
       break;
     default: lifeEnter(L_PERCH, 3000, 7000);
   }
-  if (life == L_FLY) {
-    // figure-8 target seeds; biased against gravity
-    flyTx = 40 + esp_random() % 160;
-    flyTy = 30 + esp_random() % 70;
-    B.mode = M_FLY;
-  } else if (B.mode == M_FLY) {
-    B.mode = M_GROUND;   // cut thrust; gravity lands him
-  }
+  if (B.mode == M_FLY) B.mode = M_GROUND;   // pop stars dance, they don't fly
   if (life == L_WANDER) moonwalk = (esp_random() & 1);   // half his walks are moonwalks
 }
 
@@ -358,10 +351,10 @@ static const DSprite *poseSprite(bool *pFlip) {
       return ((now / 180) & 1) ? &SPR_WALK_A : &SPR_WALK_B;
     case L_YAWNWALK:
       return ((now / 180) & 1) ? &SPR_WALK_A : &SPR_WALK_B;
-    case L_FLY: {
-      static const DSprite *fl[4] = {&SPR_FLY_A, &SPR_FLY_B, &SPR_FLY_C, &SPR_FLY_B};
-      *pFlip = (B.vx < 0);
-      return fl[(now / 120) & 3];
+    case L_FLY: {   // dance break: spin - kick - spin
+      static const DSprite *dn[4] = {&SPR_SPIN_A, &SPR_SPIN_B, &SPR_KICK, &SPR_SPIN_A};
+      *pFlip = (walkDir < 0);
+      return dn[(now / 220) & 3];
     }
     case L_STARTLE: return &SPR_STARTLED;
     default: return nullptr;   // big idle handled separately
@@ -470,27 +463,23 @@ static void renderScene() {
       if ((now / 900) & 1) drawSpr(scene, SPR_PROP_ZZ, cx + 60, cy - 14, 3, false, EDGE_BOTTOM);
     }
   } else if (life == L_HATCH) {
-    // egg wobble -> crack -> pop
+    // spotlight entrance: beam grows, the star fades in, sparkles
     uint32_t el = now - lifeT0;
-    int ex = 100, ey = 135 - 58;
-    int wob = (el < 1500) ? (((el / 250) & 1) ? 2 : -2) : 0;
-    scene.fillEllipse(ex + 20 + wob / 2, ey + 30, 20, 26, TFT_WHITE);
-    scene.fillEllipse(ex + 20 + wob / 2, ey + 34, 16, 20, 0xEF7D);
-    if (el > 1200) {
-      scene.drawLine(ex + 8, ey + 22, ex + 18, ey + 30, TFT_DARKGREY);
-      scene.drawLine(ex + 18, ey + 30, ex + 26, ey + 20, TFT_DARKGREY);
+    int r = min((int)(el / 18), 78);
+    scene.fillCircle(120, 96, r, 0x39C7);            // dim pool of light
+    scene.fillCircle(120, 96, max(0, r - 10), 0x7BCF);
+    if (el > 900) {
+      drawSpr(scene, ((now / 500) & 1) ? SPR_IDLE_A : SPR_IDLE_B,
+              65, 135 - 90, 5, false, EDGE_BOTTOM);
     }
-    if (el > 2000) {
-      drawSpr(scene, SPR_STARTLED, ex - 20, ey - 30, 4, false, EDGE_BOTTOM);
-      scene.fillEllipse(ex + 20, ey + 44, 22, 12, TFT_WHITE);   // shell base
-    }
+    if (el > 1400) sparkles(scene, 4);
   } else if (life == L_FLOURISH) {
     // showtime: spin -> fire breath -> hold the pose, sparkles throughout
     uint32_t el = now - lifeT0;
     if (el < 800) {
-      drawSpr(scene, SPR_IDLE_A, 70, 15, 5, false, (uint8_t)((el / 130) % 4));
-    } else if (el < 1400) {
-      drawSpr(scene, ((now / 150) & 1) ? SPR_FIRE_A : SPR_FIRE_B, 60, 30, 5, false, EDGE_BOTTOM);
+      drawSpr(scene, ((now / 110) & 1) ? SPR_SPIN_A : SPR_SPIN_B, 70, 15, 5, false, EDGE_BOTTOM);
+    } else if (el < 1500) {
+      drawSpr(scene, SPR_LEAN, 70, 40, 6, false, EDGE_BOTTOM);   // the impossible lean
     } else {
       drawSpr(scene, SPR_IDLE_A, 70, 20, 5, false, EDGE_BOTTOM);   // the pose
       drawSpr(scene, SPR_PROP_NOTE, 40 + (el / 9) % 160, 20 + ((el / 13) % 40), 3, false, EDGE_BOTTOM);
@@ -508,9 +497,8 @@ static void renderScene() {
     scene.setTextColor(0xFC60, TFT_BLACK);
     scene.drawString(errReason, 120, 133);
   } else if (faceState == FACE_THINK) {
-    static const DSprite *fl[4] = {&SPR_FLY_A, &SPR_FLY_B, &SPR_FLY_C, &SPR_FLY_B};
-    int bob = ((now / 300) & 1) ? 2 : -2;
-    drawSpr(scene, *fl[(now / 150) & 3], 88, 30 + bob, 5, false, EDGE_BOTTOM);
+    int bob = ((now / 300) & 1) ? 1 : 0;
+    drawSpr(scene, ((now / 500) & 1) ? SPR_IDLE_A : SPR_IDLE_B, 65, 22 + bob, 5, false, EDGE_BOTTOM);
     scene.setTextDatum(top_center);
     scene.setTextColor(TFT_WHITE, TFT_BLACK);
     scene.drawString(((now / 800) & 1) ? "?" : "...", 130, 8);
