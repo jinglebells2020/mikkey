@@ -47,7 +47,42 @@ static void setMouthOpenness(float openness) {  // 0.0 - 1.0
 
 static void pollButton() {
   M5.update();
-  if (M5.BtnA.wasPressed()) Serial.println("TRIG");
+  if (M5.BtnA.wasClicked()) Serial.println("TRIG");  // tap = advance script
+}
+
+// Hold BtnA = push-to-talk: record from the MEMS mic into the PSRAM buffer,
+// then ship it upstream as "MIC <n>\n" + raw s16le. Speaker and mic share
+// the ES8311 codec, so the speaker is stopped while recording.
+static const uint32_t MIC_RATE = 16000;
+static const size_t   MIC_CHUNK = 512;
+
+static void recordAndSend() {
+  Serial.println("REC");
+  M5.Speaker.end();
+  M5.Mic.begin();
+  M5.Display.fillCircle(M5.Display.width() - 16, 14, 7, TFT_RED);  // rec dot
+
+  int16_t *mbuf = clipBuf;
+  size_t total = 0, maxSamples = PCM_MAX / 2;
+  while (total + MIC_CHUNK <= maxSamples) {
+    M5.update();
+    if (!M5.BtnA.isPressed()) break;
+    M5.Mic.record(mbuf + total, MIC_CHUNK, MIC_RATE);
+    total += MIC_CHUNK;
+  }
+  while (M5.Mic.isRecording()) delay(1);
+  M5.Mic.end();
+  M5.Speaker.begin();
+  M5.Display.fillCircle(M5.Display.width() - 16, 14, 7, TFT_BLACK);
+
+  Serial.printf("MIC %u\n", (unsigned)total);
+  const uint8_t *p = (const uint8_t *)mbuf;
+  for (size_t off = 0; off < total * 2; off += 4096) {
+    size_t n = total * 2 - off;
+    Serial.write(p + off, n < 4096 ? n : 4096);
+  }
+  Serial.printf("dbg mic sent %u samples (%.1fs)\n", (unsigned)total,
+                total / (float)MIC_RATE);
 }
 
 // Read exactly n bytes from USB serial. Keeps the button alive while waiting.
@@ -130,28 +165,101 @@ void setup() {
 
 static const uint8_t MAGIC[4] = {'M', 'I', 'K', 'Y'};
 
+// Streamed clip ("MIKS"): unknown length. Cells arrive as 'D' + 1 env byte +
+// 882 PCM bytes (one 20 ms mouth frame each); 'E' ends the clip. Playback
+// starts once ~0.5 s is buffered and runs while the rest is still arriving —
+// the host paces at ~250 kB/s (~6x real-time), so the buffer only ever grows.
+static const uint32_t PREBUFFER_CELLS = 25;  // 0.5 s
+
+static void playClipStream(uint32_t rate) {
+  Serial.printf("dbg stream start @ %lu Hz\n", (unsigned long)rate);
+  uint32_t cells = 0, played = 0, underruns = 0;
+  bool done = false, started = false;
+  uint32_t lastData = millis();
+
+  while (true) {
+    // drain everything waiting before doing anything else — the RX ring is
+    // small and bytes dropped here mean permanent framing desync
+    while (!done && Serial.available()) {
+      uint8_t tag;
+      Serial.read(&tag, 1);
+      if (tag == 'D') {
+        if (cells >= ENV_MAX || (size_t)(cells + 1) * 441 * 2 > PCM_MAX) {
+          Serial.println("dbg stream overflow, ending early");
+          done = true;
+        } else if (!readExact(&envBuf[cells], 1, 3000) ||
+                   !readExact((uint8_t *)(clipBuf + (size_t)cells * 441), 882, 3000)) {
+          Serial.println("dbg stream cell timeout");
+          done = true;
+        } else {
+          cells++;
+          lastData = millis();
+        }
+      } else if (tag == 'E') {
+        Serial.printf("dbg E at cell %lu\n", (unsigned long)cells);
+        done = true;
+      } else {
+        Serial.printf("dbg BAD TAG 0x%02x at cell %lu\n", tag, (unsigned long)cells);
+      }
+    }
+    if (!done && millis() - lastData > 6000) {
+      Serial.println("dbg stream stalled, ending");
+      done = true;
+    }
+
+    if (!started && (cells >= PREBUFFER_CELLS || (done && cells > 0))) {
+      started = true;
+      Serial.println("PLAY");
+    }
+
+    if (started && played < cells && M5.Speaker.isPlaying(0) < 2) {
+      if (played > 0 && M5.Speaker.isPlaying(0) == 0) underruns++;
+      M5.Speaker.playRaw(clipBuf + (size_t)played * 441, 441, rate, false, 1, 0);
+      if ((played & 1) == 0)  // render at 25 fps: display pushes stall the RX ring
+        setMouthOpenness(envBuf[played] / 255.0f);
+      played++;
+    }
+
+    if (done && played >= cells && !M5.Speaker.isPlaying(0)) break;
+    if (done && cells == 0) break;
+    pollButton();
+    delay(1);
+  }
+  setMouthOpenness(0);
+  if (underruns) Serial.printf("UNDERRUN %lu\n", (unsigned long)underruns);
+  Serial.printf("DONE %lu\n", (unsigned long)played);
+}
+
 void loop() {
   pollButton();
+  if (M5.BtnA.wasHold()) recordAndSend();  // hold = push-to-talk
   // hunt for magic byte-by-byte so we can always resync
   static int magicPos = 0;
   while (Serial.available()) {
     uint8_t b;
     Serial.read(&b, 1);
-    if (b == MAGIC[magicPos]) {
-      if (++magicPos == 4) {
-        magicPos = 0;
-        uint8_t hdr[12];
-        if (!readExact(hdr, 12, 2000)) { Serial.println("dbg header timeout"); return; }
-        uint32_t rate, nSamples, nEnv;
-        memcpy(&rate, hdr, 4); memcpy(&nSamples, hdr + 4, 4); memcpy(&nEnv, hdr + 8, 4);
-        if (rate < 8000 || rate > 48000 || nSamples > 60UL * 48000) {
-          Serial.println("dbg bogus header, ignored");
-          return;
-        }
-        playClip(rate, nSamples, nEnv);
+    if (magicPos < 3) {
+      magicPos = (b == MAGIC[magicPos]) ? magicPos + 1 : (b == MAGIC[0] ? 1 : 0);
+      continue;
+    }
+    magicPos = 0;
+    if (b == 'Y') {  // fixed-length clip: 12-byte header, slurp then play
+      uint8_t hdr[12];
+      if (!readExact(hdr, 12, 2000)) { Serial.println("dbg header timeout"); return; }
+      uint32_t rate, nSamples, nEnv;
+      memcpy(&rate, hdr, 4); memcpy(&nSamples, hdr + 4, 4); memcpy(&nEnv, hdr + 8, 4);
+      if (rate < 8000 || rate > 48000 || nSamples > 60UL * 48000) {
+        Serial.println("dbg bogus header, ignored");
+        return;
       }
-    } else {
-      magicPos = (b == MAGIC[0]) ? 1 : 0;
+      playClip(rate, nSamples, nEnv);
+    } else if (b == 'S') {  // streamed clip: 4-byte rate, then cells
+      uint8_t hdr[4];
+      if (!readExact(hdr, 4, 2000)) { Serial.println("dbg header timeout"); return; }
+      uint32_t rate;
+      memcpy(&rate, hdr, 4);
+      if (rate < 8000 || rate > 48000) { Serial.println("dbg bogus rate"); return; }
+      playClipStream(rate);
     }
   }
   delay(2);

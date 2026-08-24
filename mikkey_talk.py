@@ -73,11 +73,17 @@ def transcribe(model, audio: np.ndarray) -> str:
 
 
 def make_brain():
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("[brain] no ANTHROPIC_API_KEY in .env — using canned replies")
-        return None
-    import anthropic
-    return anthropic.Anthropic()
+    if os.environ.get("OPENROUTER_API_KEY"):
+        model = os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash-latest")
+        print(f"[brain] openrouter: {model}")
+        return {"kind": "openrouter",
+                "key": os.environ["OPENROUTER_API_KEY"], "model": model}
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        import anthropic
+        print("[brain] anthropic: claude-opus-5")
+        return {"kind": "anthropic", "client": anthropic.Anthropic()}
+    print("[brain] no OPENROUTER_API_KEY / ANTHROPIC_API_KEY in .env — canned replies")
+    return None
 
 
 def think(brain, history: list, heard: str) -> str:
@@ -87,14 +93,28 @@ def think(brain, history: list, heard: str) -> str:
         canned_idx += 1
         return reply
     history.append({"role": "user", "content": heard})
-    response = brain.messages.create(
-        model="claude-opus-5",
-        max_tokens=300,
-        system=SYSTEM,
-        output_config={"effort": "low"},   # snappy replies; raise if answers get dull
-        messages=history[-10:],            # short rolling memory
-    )
-    reply = next((b.text for b in response.content if b.type == "text"), "").strip()
+    if brain["kind"] == "openrouter":
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/chat/completions", method="POST",
+            data=json.dumps({
+                "model": brain["model"],
+                "max_tokens": 300,
+                "reasoning": {"effort": "low"},   # latency: don't let it ponder
+                "messages": [{"role": "system", "content": SYSTEM}] + history[-10:],
+            }).encode(),
+            headers={"Authorization": f"Bearer {brain['key']}",
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            reply = json.loads(r.read())["choices"][0]["message"]["content"].strip()
+    else:
+        response = brain["client"].messages.create(
+            model="claude-opus-5",
+            max_tokens=300,
+            system=SYSTEM,
+            output_config={"effort": "low"},
+            messages=history[-10:],
+        )
+        reply = next((b.text for b in response.content if b.type == "text"), "").strip()
     history.append({"role": "assistant", "content": reply})
     return reply
 

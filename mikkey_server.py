@@ -78,6 +78,113 @@ def do_trigger() -> dict:
     return {"id": line["id"], "pos": pos}
 
 
+def do_say(text: str, lid: str | None = None) -> dict:
+    lid = lid or f"say-{int(time.time())}"
+    ensure_clip(lid, text)
+    with lock:
+        queue.append(lid)
+    return {"id": lid}
+
+
+# ---------------- streaming TTS -> stick (low-latency live turns) ----------
+
+REF_RMS = 14000.0     # fixed loudness reference (median max-RMS of real clips)
+ATTACK, DECAY, FLOOR, SILENCE = 0.7, 0.25, 0.15, 0.02
+CELL = 441            # samples per cell = one mouth frame
+STREAM_RATE = 24000   # fish pcm supports 8k/16k/24k/32k/44.1k — not 22050
+
+
+def stream_say(ser, text: str, lid: str | None = None):
+    """Stream Fish Audio PCM straight to the stick while it generates.
+    Playback starts ~0.5 s in. Archives the audio as out/{lid}.wav."""
+    import numpy as np
+    lid = lid or f"say-{int(time.time())}"
+    print(f"[stream] fish-audio: {lid!r}: {text[:60]}...")
+    t0 = time.time()
+    from fishaudio.types import TTSConfig
+    stream = client.tts.stream(
+        text=text, model=MODEL, format="pcm", reference_id=REF_ID,
+        config=TTSConfig(format="pcm", sample_rate=STREAM_RATE))
+
+    ser.write(b"MIKS" + struct.pack("<I", STREAM_RATE))
+    pending = b""
+    all_pcm = []
+    env_state, first = 0.0, True
+    cells = 0
+    try:
+        for chunk in stream:
+            if first:
+                print(f"[stream] first audio after {time.time()-t0:.2f}s")
+                first = False
+            all_pcm.append(chunk)
+            pending += chunk
+            while len(pending) >= CELL * 2:
+                cell, pending = pending[:CELL * 2], pending[CELL * 2:]
+                raw = np.frombuffer(cell, dtype=np.int16).astype(np.float64)
+                rms = min(np.sqrt((raw ** 2).mean()) / REF_RMS, 1.0)
+                coef = ATTACK if rms > env_state else DECAY
+                env_state += coef * (rms - env_state)
+                val = max(env_state, FLOOR) if rms > SILENCE else env_state
+                ser.write(b"D" + bytes([int(val * 255)]) + cell)
+                cells += 1
+                # ~1.4x real-time: fast enough that the buffer only grows,
+                # slow enough that the stick's tiny CDC RX ring never floods
+                time.sleep(0.010)
+    except Exception as e:
+        print(f"[err] fish stream died: {e} — ending clip early")
+    if pending:
+        cell = pending + b"\x00" * (CELL * 2 - len(pending))
+        ser.write(b"D" + bytes([int(FLOOR * 255)]) + cell)
+        cells += 1
+    ser.write(b"E")
+    ser.flush()
+    secs = cells * CELL / STREAM_RATE
+    print(f"[stream] {lid}: {cells} cells ({secs:.1f}s) sent in {time.time()-t0:.2f}s")
+
+    pcm = b"".join(all_pcm)
+    import wave
+    OUT.mkdir(exist_ok=True)
+    with wave.open(str(OUT / f"{lid}.wav"), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(STREAM_RATE)
+        w.writeframes(pcm)
+    return lid
+
+
+# ---------------- stick-mic push-to-talk (whisper + Claude) ----------------
+
+_talk = {"whisper": None, "brain": None, "history": [], "loaded": False}
+
+
+def handle_mic_audio(pcm16: bytes, ser=None):
+    """Raw s16le 16 kHz from the stick's mic -> transcribe -> reply -> sing.
+    With ser: streams the reply live (low latency). Without: queued path."""
+    import numpy as np
+    from mikkey_talk import load_whisper, transcribe, make_brain, think
+
+    if not _talk["loaded"]:
+        _talk["whisper"] = load_whisper()
+        _talk["brain"] = make_brain()
+        _talk["loaded"] = True
+    audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
+    secs = len(audio) / 16000
+    if secs < 0.5:
+        print(f"[mic] {secs:.1f}s — too short, ignored")
+        return
+    heard = transcribe(_talk["whisper"], audio)
+    if not heard:
+        print("[mic] heard nothing")
+        return
+    reply = think(_talk["brain"], _talk["history"], heard)
+    print(f"[mikkey] {reply}")
+    if ser is not None:
+        try:
+            stream_say(ser, reply)
+            return
+        except Exception as e:
+            print(f"[err] streaming failed ({e}), falling back to queued path")
+    do_say(reply)
+
+
 # ---------------- USB serial link to the StickS3 ----------------
 
 def clip_blob(lid: str) -> bytes:
@@ -89,6 +196,7 @@ def clip_blob(lid: str) -> bytes:
 def serial_worker(port: str):
     stick_busy = False
     busy_until = 0.0
+    recording = False
     while True:
         try:
             ser = pyserial.Serial(port, 115200, timeout=0.05)
@@ -110,12 +218,33 @@ def serial_worker(port: str):
                             do_trigger()
                         except Exception as e:
                             print(f"[err] trigger failed: {e}")
+                    elif line == "REC":
+                        recording = True   # hold pushes while the mic is live
+                    elif line.startswith("MIC "):
+                        recording = False
+                        try:
+                            n = int(line.split()[1])
+                            want = n * 2
+                            buf = bytearray()
+                            deadline = time.time() + 10
+                            while len(buf) < want and time.time() < deadline:
+                                chunk = ser.read(want - len(buf))
+                                if chunk:
+                                    buf.extend(chunk)
+                            print(f"[mic] got {len(buf)}/{want} bytes "
+                                  f"({n/16000:.1f}s of speech)")
+                            if len(buf) == want:
+                                handle_mic_audio(bytes(buf), ser)
+                            else:
+                                print("[err] mic transfer incomplete, dropped")
+                        except Exception as e:
+                            print(f"[err] mic handling failed: {e}")
                     elif line.startswith(("DONE", "READY")):
                         stick_busy = False
                 if stick_busy and time.time() > busy_until:
                     print("[usb] busy timeout, assuming stick is idle")
                     stick_busy = False
-                if not stick_busy:
+                if not stick_busy and not recording:
                     with lock:
                         lid = queue.pop(0) if queue else None
                     if lid:
@@ -212,16 +341,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"error": f"bad body: {e}"}, 400)
                 return
-            lid = body.get("id") or f"say-{int(time.time())}"
             try:
-                ensure_clip(lid, text)
+                self.send_json(do_say(text, body.get("id")))
             except Exception as e:
                 print(f"[err] generation failed: {e}")
                 self.send_json({"error": str(e)}, 500)
-                return
-            with lock:
-                queue.append(lid)
-            self.send_json({"id": lid})
 
         elif self.path == "/trigger":
             try:
