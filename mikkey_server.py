@@ -94,6 +94,138 @@ CELL = 441            # samples per cell = one mouth frame
 STREAM_RATE = 24000   # fish pcm supports 8k/16k/24k/32k/44.1k — not 22050
 
 
+class CellSender:
+    """Sends 20 ms envelope+PCM cells down an open MIKS stream."""
+
+    def __init__(self, ser):
+        self.ser = ser
+        self.pending = b""
+        self.env = 0.0
+        self.cells = 0
+        ser.write(b"MIKS" + struct.pack("<I", STREAM_RATE))
+
+    def _send_cell(self, cell: bytes):
+        import numpy as np
+        raw = np.frombuffer(cell, dtype=np.int16).astype(np.float64)
+        rms = min(np.sqrt((raw ** 2).mean()) / REF_RMS, 1.0)
+        coef = ATTACK if rms > self.env else DECAY
+        self.env += coef * (rms - self.env)
+        val = max(self.env, FLOOR) if rms > SILENCE else self.env
+        self.ser.write(b"D" + bytes([int(val * 255)]) + cell)
+        self.cells += 1
+        time.sleep(0.010)   # ~1.4x real-time: CDC RX ring floods above this
+
+    def feed(self, pcm: bytes):
+        self.pending += pcm
+        while len(self.pending) >= CELL * 2:
+            cell, self.pending = self.pending[:CELL * 2], self.pending[CELL * 2:]
+            self._send_cell(cell)
+
+    def silence(self):
+        """One real-time silent cell — keeps the stream alive while waiting."""
+        self.ser.write(b"D\x00" + b"\x00" * (CELL * 2))
+        self.cells += 1
+        time.sleep(441 / STREAM_RATE)
+
+    def finish(self):
+        if self.pending:
+            self._send_cell(self.pending + b"\x00" * (CELL * 2 - len(self.pending)))
+        self.ser.write(b"E")
+        self.ser.flush()
+
+
+# Thinking noises: pre-generated hums pushed the instant the button releases,
+# so Mikkey is never silent while whisper/LLM/Fish do their work.
+FILLERS = [
+    "[humming thoughtfully, slow] Hmmmm... hm hm hmmmm...",
+    "[sung softly, pondering] Oooh, hmmm, let me thiiiink...",
+    "[playful curious thinking noises] Uhmmm... hmm hmm... oooh!",
+    "[humming a cheerful little tune while thinking] Hm hm hmmm, la la hmmm...",
+]
+_filler_last = -1
+
+
+def ensure_fillers():
+    CACHE.mkdir(exist_ok=True)
+    from fishaudio.types import TTSConfig
+    for i, text in enumerate(FILLERS):
+        p = CACHE / f"filler-{i}.pcm24"
+        if p.exists():
+            continue
+        print(f"[filler] generating {i}: {text[:50]}")
+        pcm = client.tts.convert(text=text, model=MODEL, format="pcm",
+                                 reference_id=REF_ID,
+                                 config=TTSConfig(format="pcm", sample_rate=STREAM_RATE))
+        p.write_bytes(pcm)
+    print("[filler] ready")
+
+
+def pick_filler() -> bytes:
+    import random
+    global _filler_last
+    options = [i for i in range(len(FILLERS))
+               if (CACHE / f"filler-{i}.pcm24").exists() and i != _filler_last]
+    if not options:
+        return b""
+    _filler_last = random.choice(options)
+    return (CACHE / f"filler-{_filler_last}.pcm24").read_bytes()
+
+
+def stream_live(ser, filler_pcm: bytes, get_reply):
+    """One continuous stream: thinking-hum filler -> silence padding while the
+    brain/Fish work -> the sung answer. get_reply() blocks until the reply
+    text is ready (or returns None)."""
+    import queue as queue_mod
+    q = queue_mod.Queue()
+    lid = f"say-{int(time.time())}"
+
+    def feeder():
+        text = get_reply()
+        if not text:
+            q.put(None)
+            return
+        try:
+            from fishaudio.types import TTSConfig
+            t0 = time.time()
+            first = True
+            for chunk in client.tts.stream(
+                    text=text, model=MODEL, format="pcm", reference_id=REF_ID,
+                    config=TTSConfig(format="pcm", sample_rate=STREAM_RATE)):
+                if first:
+                    print(f"[stream] first fish audio after {time.time()-t0:.2f}s")
+                    first = False
+                q.put(chunk)
+        except Exception as e:
+            print(f"[err] fish stream died: {e}")
+        q.put(None)
+
+    threading.Thread(target=feeder, daemon=True).start()
+    sender = CellSender(ser)
+    if filler_pcm:
+        sender.feed(filler_pcm)
+    all_pcm, ended = [], False
+    while not ended:
+        try:
+            chunk = q.get(timeout=441 / STREAM_RATE)
+            if chunk is None:
+                ended = True
+            else:
+                all_pcm.append(chunk)
+                sender.feed(chunk)
+        except queue_mod.Empty:
+            sender.silence()    # Mikkey pauses, mouth closed, stream alive
+    sender.finish()
+    print(f"[stream] live turn: {sender.cells} cells "
+          f"({sender.cells * CELL / STREAM_RATE:.1f}s incl. filler)")
+
+    if all_pcm:
+        import wave
+        OUT.mkdir(exist_ok=True)
+        with wave.open(str(OUT / f"{lid}.wav"), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(STREAM_RATE)
+            w.writeframes(b"".join(all_pcm))
+
+
 def stream_say(ser, text: str, lid: str | None = None):
     """Stream Fish Audio PCM straight to the stick while it generates.
     Playback starts ~0.5 s in. Archives the audio as out/{lid}.wav."""
@@ -170,19 +302,36 @@ def handle_mic_audio(pcm16: bytes, ser=None):
     if secs < 0.5:
         print(f"[mic] {secs:.1f}s — too short, ignored")
         return
-    heard = transcribe(_talk["whisper"], audio)
-    if not heard:
-        print("[mic] heard nothing")
-        return
-    reply = think(_talk["brain"], _talk["history"], heard)
-    print(f"[mikkey] {reply}")
-    if ser is not None:
+
+    # whisper + LLM in the background while the filler hum plays
+    result = {}
+    def brain_work():
         try:
-            stream_say(ser, reply)
-            return
+            heard = transcribe(_talk["whisper"], audio)
+            if heard:
+                result["reply"] = think(_talk["brain"], _talk["history"], heard)
+                print(f"[mikkey] {result['reply']}")
         except Exception as e:
-            print(f"[err] streaming failed ({e}), falling back to queued path")
-    do_say(reply)
+            print(f"[err] brain failed: {e}")
+    th = threading.Thread(target=brain_work, daemon=True)
+    th.start()
+
+    if ser is None:
+        th.join()
+        if result.get("reply"):
+            do_say(result["reply"])
+        return
+
+    def get_reply():
+        th.join()
+        return result.get("reply")
+    try:
+        stream_live(ser, pick_filler(), get_reply)
+    except Exception as e:
+        print(f"[err] live stream failed ({e}), falling back to queued path")
+        th.join()
+        if result.get("reply"):
+            do_say(result["reply"])
 
 
 # ---------------- USB serial link to the StickS3 ----------------
@@ -358,6 +507,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    threading.Thread(target=ensure_fillers, daemon=True).start()
     port = sys.argv[sys.argv.index("--port") + 1] if "--port" in sys.argv else find_stick_port()
     if port:
         threading.Thread(target=serial_worker, args=(port,), daemon=True).start()
