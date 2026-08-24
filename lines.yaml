@@ -1,0 +1,39 @@
+# Test lines for Fish Audio S2.1 Pro sung-delivery evaluation.
+# Emotion/style cues go in [square brackets] — S2.1 accepts free-form natural language.
+# Run: .venv/bin/python sing_test.py
+model: s2.1-pro-free
+
+# Optional: pin a voice. Leave empty to use the default voice.
+# reference_id: ""
+
+lines:
+  - id: sung-theatrical
+    text: "[sung, theatrical, big Broadway finish] Hellooo there, my friend! I am Mikkey, the buddy on your desk, and todaaay is going to be wonderful!"
+
+  - id: lullaby-breathy
+    text: "[like a lullaby, breathy, soft and slow] Go to sleep, little laptop... close your liiid... dream of updates... installing overniiight..."
+
+  - id: operatic
+    text: "[operatic, over-the-top, dramatic vibrato] YOUR COFFEE! IS GETTING! COOOOLD! Such tragedy has never touched this desk before!"
+
+  - id: humming
+    text: "[humming a cheerful tune, wordless] Hmm hmm hm-hm-hmmm, hmm hm hmmm, hm hm hm hmm hmmmm!"
+
+  - id: jingle
+    text: "[sung like a catchy TV jingle, upbeat] Mikkey, Mikkey, the buddy on your desk! Ask him any question, and he'll do his very best!"
+
+  - id: sea-shanty
+    text: "[sung like a sea shanty, hearty and rhythmic] Ohhh, the WiFi's up and the code compiles, we'll ship this build in a country mile, heave away, my coding boys, heave away, hooray!"
+
+  - id: sad-ballad
+    text: "[sung as a slow sad ballad, mournful] Nobody... pressed my buttonnnn... all daaay... I sat here... just blinkiiing... awaaaay..."
+
+  - id: rock-anthem
+    text: "[sung like a stadium rock anthem, powerful, shouty] ARE YOU READY?! To WRITE! SOME! COOOODE! Yeah! Let's gooooo!"
+
+  # ---- controls: plain speech for comparison ----
+  - id: control-plain
+    text: "Hello there, my friend. I am Mikkey, the buddy on your desk, and today is going to be wonderful."
+
+  - id: control-happy
+    text: "[happy, excited] Hello there, my friend! I am Mikkey, the buddy on your desk, and today is going to be wonderful!"

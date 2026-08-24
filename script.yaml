@@ -1,0 +1,24 @@
+# The video's lines, in order. Each button press on Mikkey advances one line.
+# ids matching already-generated clips in out/ are served from cache instantly.
+# Edit freely — new/changed text is generated on demand.
+model: s2.1-pro-free
+# reference_id: ""
+
+lines:
+  - id: sung-theatrical
+    text: "[sung, theatrical, big Broadway finish] Hellooo there, my friend! I am Mikkey, the buddy on your desk, and todaaay is going to be wonderful!"
+
+  - id: jingle
+    text: "[sung like a catchy TV jingle, upbeat] Mikkey, Mikkey, the buddy on your desk! Ask him any question, and he'll do his very best!"
+
+  - id: sea-shanty
+    text: "[sung like a sea shanty, hearty and rhythmic] Ohhh, the WiFi's up and the code compiles, we'll ship this build in a country mile, heave away, my coding boys, heave away, hooray!"
+
+  - id: sad-ballad
+    text: "[sung as a slow sad ballad, mournful] Nobody... pressed my buttonnnn... all daaay... I sat here... just blinkiiing... awaaaay..."
+
+  - id: rock-anthem
+    text: "[sung like a stadium rock anthem, powerful, shouty] ARE YOU READY?! To WRITE! SOME! COOOODE! Yeah! Let's gooooo!"
+
+  - id: humming
+    text: "[humming a cheerful tune, wordless] Hmm hmm hm-hm-hmmm, hmm hm hmmm, hm hm hm hmm hmmmm!"
