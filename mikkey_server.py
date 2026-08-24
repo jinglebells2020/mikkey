@@ -676,12 +676,22 @@ def link_worker(conn, name: str, heartbeat: bool):
                         handle_mic_audio(bytes(buf), conn)
                     else:
                         print("[err] mic transfer incomplete, dropped")
+                    # discard lines that piled up while we streamed the reply:
+                    # stale POLL/PLAY/DONE here caused pushes mid-playback and
+                    # mis-attributed busy state (heartbeat killed a live link)
+                    stale = 0
+                    while conn.readline():
+                        stale += 1
+                    if stale:
+                        print(f"[{name}] discarded {stale} stale lines after mic turn")
+                    last_seen = time.time()
                 except (OSError, pyserial.SerialException):
                     raise
                 except Exception as e:
                     print(f"[err] mic handling failed: {e}")
             elif line.startswith("PLAY"):
-                got_play = True
+                if stick_busy:
+                    got_play = True
             elif line.startswith(("DONE", "READY")):
                 stick_busy = False
                 busy_lid = None
