@@ -134,6 +134,60 @@ class CellSender:
         self.ser.flush()
 
 
+# Small talk gets an instant pre-generated sung reply — no LLM, no Fish call.
+# Matched against the whisper transcript (short utterances only).
+QUICK_REPLIES = {
+    "greeting": [
+        "[sung, cheerful] Helloooo my friend! So happy to seeee you!",
+        "[sung like a jingle] Hi hi hiii! Mikkey at your serviiice!",
+        "[sung, warm] Heyyy there, wonderful humaaan!",
+    ],
+    "howareyou": [
+        "[sung, upbeat] I'm feeling electric, thank you for asking, la la laaa!",
+        "[sung, theatrical] Marvelous, magnificent, my circuits are siiinging!",
+    ],
+    "name": [
+        "[sung like a jingle] I'm Mikkey, Mikkey, the buddy on your deeesk!",
+    ],
+    "thanks": [
+        "[sung, warm] You're welcome, you're welcome, anytiiime my friend!",
+    ],
+    "bye": [
+        "[sung, soft and sweet] Byeee byeee, come back soooon, I'll be riiight here!",
+    ],
+}
+
+
+def match_quick(heard: str) -> str | None:
+    import re
+    t = re.sub(r"[^a-z' ]", "", heard.lower()).strip()
+    words = t.split()
+    if not words or len(words) > 6:      # long utterance = real question
+        return None
+    j = " ".join(words)
+    if any(p in j for p in ("how are you", "how're you", "how you doing",
+                            "how's it going", "hows it going", "what's up", "whats up")):
+        return "howareyou"
+    if any(p in j for p in ("your name", "who are you")):
+        return "name"
+    if "thank" in j:
+        return "thanks"
+    if "goodbye" in j or "bye" in words or "see you" in j:
+        return "bye"
+    if words[0] in ("hi", "hello", "hey", "yo", "hiya", "greetings", "sup"):
+        return "greeting"
+    return None
+
+
+def pick_quick(intent: str):
+    import random
+    opts = sorted(CACHE.glob(f"quick-{intent}-*.pcm24"))
+    if not opts:
+        return None, None
+    p = random.choice(opts)
+    return p.read_bytes(), QUICK_REPLIES[intent][int(p.stem.split("-")[-1])]
+
+
 # Thinking noises: pre-generated hums pushed the instant the button releases,
 # so Mikkey is never silent while whisper/LLM/Fish do their work.
 FILLERS = [
@@ -148,16 +202,19 @@ _filler_last = -1
 def ensure_fillers():
     CACHE.mkdir(exist_ok=True)
     from fishaudio.types import TTSConfig
-    for i, text in enumerate(FILLERS):
-        p = CACHE / f"filler-{i}.pcm24"
+    todo = [(CACHE / f"filler-{i}.pcm24", t) for i, t in enumerate(FILLERS)]
+    todo += [(CACHE / f"quick-{intent}-{i}.pcm24", t)
+             for intent, texts in QUICK_REPLIES.items()
+             for i, t in enumerate(texts)]
+    for p, text in todo:
         if p.exists():
             continue
-        print(f"[filler] generating {i}: {text[:50]}")
+        print(f"[canned] generating {p.stem}: {text[:50]}")
         pcm = client.tts.convert(text=text, model=MODEL, format="pcm",
                                  reference_id=REF_ID,
                                  config=TTSConfig(format="pcm", sample_rate=STREAM_RATE))
         p.write_bytes(pcm)
-    print("[filler] ready")
+    print("[canned] fillers + quick replies ready")
 
 
 def pick_filler() -> bytes:
@@ -303,14 +360,31 @@ def handle_mic_audio(pcm16: bytes, ser=None):
         print(f"[mic] {secs:.1f}s — too short, ignored")
         return
 
-    # whisper + LLM in the background while the filler hum plays
+    # transcription is fast (~0.4s) — do it first, then pick a path
+    heard = transcribe(_talk["whisper"], audio)
+    if not heard:
+        print("[mic] heard nothing")
+        return
+
+    # fast path: small talk gets an instant cached sung reply
+    intent = match_quick(heard)
+    if intent and ser is not None:
+        pcm, text = pick_quick(intent)
+        if pcm:
+            print(f"[quick] {intent}: {text}")
+            _talk["history"] += [{"role": "user", "content": heard},
+                                 {"role": "assistant", "content": text}]
+            sender = CellSender(ser)
+            sender.feed(pcm)
+            sender.finish()
+            return
+
+    # slow path: LLM in the background while the thinking hum plays
     result = {}
     def brain_work():
         try:
-            heard = transcribe(_talk["whisper"], audio)
-            if heard:
-                result["reply"] = think(_talk["brain"], _talk["history"], heard)
-                print(f"[mikkey] {result['reply']}")
+            result["reply"] = think(_talk["brain"], _talk["history"], heard)
+            print(f"[mikkey] {result['reply']}")
         except Exception as e:
             print(f"[err] brain failed: {e}")
     th = threading.Thread(target=brain_work, daemon=True)
