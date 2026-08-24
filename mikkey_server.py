@@ -126,6 +126,21 @@ CELL = 441            # samples per cell = one mouth frame
 STREAM_RATE = 24000   # fish pcm supports 8k/16k/24k/32k/44.1k — not 22050
 
 
+def mood_of(text: str) -> int:
+    """0 plain, 1 upbeat, 2 sad, 3 sleepy — from the reply's style tag."""
+    t = text.lower()
+    if any(w in t for w in ("sad", "ballad", "mournful", "melanchol", "sorrow",
+                            "apolog", "sheepish", "tearful")):
+        return 2
+    if any(w in t for w in ("lullaby", "sleepy", "drowsy", "soft and slow", "whisper")):
+        return 3
+    if any(w in t for w in ("upbeat", "cheerful", "jingle", "rock", "anthem",
+                            "excited", "theatrical", "energetic", "happy",
+                            "playful", "jazzy", "triumphant")):
+        return 1
+    return 0
+
+
 class CellSender:
     """Sends 20 ms envelope+PCM cells down an open MIKS stream."""
 
@@ -135,6 +150,10 @@ class CellSender:
         self.env = 0.0
         self.cells = 0
         ser.write(b"MIKS" + struct.pack("<I", STREAM_RATE))
+
+    def set_mood(self, mood: int):
+        """In-stream mood tag — colors the stick's singing + flourish."""
+        self.ser.write(b"M" + bytes([mood & 3]))
 
     def _send_cell(self, cell: bytes):
         import numpy as np
@@ -331,6 +350,7 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
         if not text:
             q.put(None)
             return
+        q.put(("mood", mood_of(text)))
         try:
             from fishaudio.types import TTSConfig
             t0 = time.time()
@@ -357,6 +377,8 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
             chunk = q.get(timeout=441 / STREAM_RATE)
             if chunk is None:
                 ended = True
+            elif isinstance(chunk, tuple) and chunk[0] == "mood":
+                sender.set_mood(chunk[1])
             else:
                 all_pcm.append(chunk)
                 sender.feed(chunk)
@@ -367,6 +389,7 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
         print("[stream] no answer audio — playing error clip")
         err = pick_error_clip()
         if err:
+            sender.set_mood(2)   # sad
             sender.feed(err)
     sender.finish()
     print(f"[stream] live turn: {sender.cells} cells "
@@ -486,6 +509,7 @@ def handle_mic_audio(pcm16: bytes, ser=None):
             _talk["history"] += [{"role": "user", "content": heard},
                                  {"role": "assistant", "content": text}]
             sender = CellSender(ser)
+            sender.set_mood(mood_of(text))
             sender.feed(pcm)
             sender.finish()
             return

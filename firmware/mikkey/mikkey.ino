@@ -156,6 +156,12 @@ static void playClipStream(uint32_t rate) {
       } else if (tag == 'E') {
         Serial.printf("dbg E at cell %lu\n", (unsigned long)cells);
         done = true;
+      } else if (tag == 'M') {
+        // in-stream mood tag: one byte, colors the jaw tint + the flourish
+        int mv = -1;
+        uint32_t tw = millis();
+        while (mv < 0 && millis() - tw < 200) { mv = link_->read(); if (mv < 0) delay(1); }
+        if (mv >= 0 && mv <= 3) dragonSetMood((uint8_t)mv);
       } else {
         badTags++;
       }
