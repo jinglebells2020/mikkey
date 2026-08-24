@@ -148,7 +148,13 @@ def main():
         if not heard:
             print("[stt] heard nothing, try again")
             continue
-        reply = think(brain, history, heard)
+        try:
+            reply = think(brain, history, heard)
+        except Exception as e:
+            print(f"[err] think failed ({e}) — using canned line")
+            global canned_idx
+            reply = CANNED[canned_idx % len(CANNED)]
+            canned_idx += 1
         print(f"[mikkey] {reply}")
         try:
             say(reply)

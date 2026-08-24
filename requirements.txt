@@ -1,0 +1,8 @@
+fish-audio-sdk
+pyyaml
+python-dotenv
+numpy
+pyserial
+sounddevice
+faster-whisper
+anthropic

@@ -4,3 +4,4 @@ out/
 __pycache__/
 *.pyc
 cache/
+firmware/mikkey/wifi_config.h

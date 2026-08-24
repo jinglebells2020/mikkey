@@ -1,0 +1,7 @@
+// Copy to wifi_config.h and fill in. wifi_config.h is gitignored.
+#pragma once
+#define WIFI_SSID "your-hotspot-name"
+#define WIFI_PASS "your-password"
+#define SERVER_HOST "your-mac"            // scutil --get LocalHostName on the laptop
+#define SERVER_IP_FALLBACK "172.20.10.7"  // laptop's IP on the hotspot (ipconfig getifaddr en0)
+#define SERVER_PORT 8091
