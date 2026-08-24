@@ -91,8 +91,8 @@ static void physCalibrate() {
   int got = 0;
   for (int i = 0; i < 16; i++) {
     if (M5.Imu.getAccel(&fx, &fy, &fz)) {
-      // measured on this unit: ax = screen-right, ay = screen-down (rot 1)
-      sxx += (int32_t)(fx * 1000);
+      // measured on this unit: -ax = screen-right, ay = screen-down (rot 1)
+      sxx += (int32_t)(fx * -1000);
       syy += (int32_t)(fy * 1000);
       szz += (int32_t)(fz * 1000);
       got++;
@@ -128,8 +128,8 @@ static void physSample() {
                   (long)dbgAx, (long)dbgAy, (long)dbgAz,
                   (long)B.gfx, (long)B.gfy, B.edge);
   }
-  // measured on this unit: ax = screen-right, ay = screen-down (rot 1)
-  int32_t rx = (int32_t)(fx * 1000);
+  // measured on this unit: -ax = screen-right, ay = screen-down (rot 1)
+  int32_t rx = (int32_t)(fx * -1000);
   int32_t ry = (int32_t)(fy * 1000);
   int32_t rz = (int32_t)(fz * 1000);
   B.gfx += (rx - B.gfx) >> 3;
