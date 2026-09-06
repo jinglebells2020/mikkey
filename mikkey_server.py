@@ -61,19 +61,39 @@ def normalize_pcm(data: bytes) -> bytes:
     return np.clip(s * gain, -32767, 32767).astype(np.int16).tobytes()
 
 
+def text_changed(sidecar: Path, text: str) -> bool:
+    """A clip is keyed by id; if the text behind that id changed since the
+    clip was generated, it must be regenerated (edit script.yaml freely)."""
+    return not sidecar.exists() or sidecar.read_text() != text
+
+
+def log_take(lid: str, text: str, kind: str) -> None:
+    """out/takes.log: what Mikkey sang, when, and which master file it is —
+    the edit needs to find the API audio for every on-camera line."""
+    OUT.mkdir(exist_ok=True)
+    with (OUT / "takes.log").open("a") as f:
+        f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\t{kind}\t{lid}\t{text}\n")
+
+
 def ensure_clip(lid: str, text: str) -> None:
     """Generate mp3 (unless cached) and normalized pcm+env (unless cached)."""
     OUT.mkdir(exist_ok=True)
     CACHE.mkdir(exist_ok=True)
     mp3 = OUT / f"{lid}.mp3"
+    sidecar = OUT / f"{lid}.txt"
+    pcm, env = CACHE / f"{lid}.pcm", CACHE / f"{lid}.env"
+    if mp3.exists() and text_changed(sidecar, text):
+        print(f"[gen] {lid}: text changed — regenerating")
+        for stale in (mp3, pcm, env):
+            stale.unlink(missing_ok=True)
     if not mp3.exists():
         print(f"[gen] fish-audio: {lid!r}: {text[:60]}...")
         t0 = time.time()
         audio = client.tts.convert(text=text, model=MODEL, format="mp3",
                                    reference_id=REF_ID)
         mp3.write_bytes(audio)
+        sidecar.write_text(text)
         print(f"[gen] {lid}: {len(audio)} bytes in {time.time()-t0:.1f}s")
-    pcm, env = CACHE / f"{lid}.pcm", CACHE / f"{lid}.env"
     if not pcm.exists() or not env.exists():
         mp3_to_pcm(mp3, pcm)
         pcm.write_bytes(normalize_pcm(pcm.read_bytes()))
@@ -107,6 +127,7 @@ def do_trigger() -> dict:
     with lock:
         script_pos = pos + 1
         queue.append(line["id"])
+    log_take(line["id"], line["text"], "script")
     return {"id": line["id"], "pos": pos + 1}
 
 
@@ -115,7 +136,16 @@ def do_say(text: str, lid: str | None = None) -> dict:
     ensure_clip(lid, text)
     with lock:
         queue.append(lid)
+    log_take(lid, text, "say")
     return {"id": lid}
+
+
+def do_goto(pos: int) -> dict:
+    """Jump the script cursor (0-based) — shoot out of order."""
+    global script_pos
+    with lock:
+        script_pos = max(0, min(pos, len(SCRIPT_LINES)))
+        return {"pos": script_pos, "next": SCRIPT_LINES[script_pos % len(SCRIPT_LINES)]["id"]}
 
 
 # ---------------- streaming TTS -> stick (low-latency live turns) ----------
@@ -204,7 +234,11 @@ QUICK_REPLIES = {
         "[sung, theatrical] Marvelous, magnificent, my circuits are siiinging!",
     ],
     "name": [
-        "[sung like a jingle] I'm Mikkey, Mikkey, the buddy on your deeesk!",
+        "[sung like a jingle] I'm Mikkey, Mikkey, the buddy on your keeeys!",
+    ],
+    # the hook: "Mikkey, say something normal." -> instant, deterministic
+    "normal": [
+        "[sung, theatrical, drawn-out, big dramatic finish] I don't knooow how to do thaaat!",
     ],
     "thanks": [
         "[sung, warm] You're welcome, you're welcome, anytiiime my friend!",
@@ -225,6 +259,8 @@ def match_quick(heard: str) -> str | None:
     if any(p in j for p in ("how are you", "how're you", "how you doing",
                             "how's it going", "hows it going", "what's up", "whats up")):
         return "howareyou"
+    if "normal" in words or "talk" in words or "speak" in words:
+        return "normal"
     if any(p in j for p in ("your name", "who are you")):
         return "name"
     if "thank" in j:
@@ -278,6 +314,10 @@ def ensure_fillers():
              for intent, texts in QUICK_REPLIES.items()
              for i, t in enumerate(texts)]
     todo += [(CACHE / f"error-{i}.pcm24", t) for i, t in enumerate(ERROR_LINES)]
+    for p, text in todo:
+        if p.exists() and text_changed(p.with_suffix(".txt"), text):
+            print(f"[canned] {p.stem}: text changed — regenerating")
+            p.unlink()
     for attempt in range(5):
         missing = [(p, t) for p, t in todo if not p.exists()]
         if not missing:
@@ -288,7 +328,10 @@ def ensure_fillers():
                 pcm = client.tts.convert(
                     text=text, model=MODEL, format="pcm", reference_id=REF_ID,
                     config=TTSConfig(format="pcm", sample_rate=STREAM_RATE))
-                p.write_bytes(normalize_pcm(pcm))
+                pcm = normalize_pcm(pcm)
+                p.write_bytes(pcm)
+                p.with_suffix(".txt").write_text(text)
+                write_wav(OUT / f"{p.stem}.wav", pcm)   # edit master
             except Exception as e:
                 print(f"[err] canned gen failed for {p.stem}: {e}")
         if any(not p.exists() for p, _ in todo):
@@ -299,6 +342,14 @@ def ensure_fillers():
         print(f"[err] STILL MISSING canned clips after retries: {missing}")
     else:
         print("[canned] fillers + quick replies + error lines ready")
+
+
+def write_wav(path: Path, pcm: bytes, rate: int = STREAM_RATE) -> None:
+    import wave
+    OUT.mkdir(exist_ok=True)
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(pcm)
 
 
 def pick_error_clip() -> bytes:
@@ -344,12 +395,14 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
     import queue as queue_mod
     q = queue_mod.Queue()
     lid = f"say-{int(time.time())}"
+    reply_text = {}
 
     def feeder():
         text = get_reply()
         if not text:
             q.put(None)
             return
+        reply_text["text"] = text
         q.put(("mood", mood_of(text)))
         try:
             from fishaudio.types import TTSConfig
@@ -396,11 +449,8 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
           f"({sender.cells * CELL / STREAM_RATE:.1f}s incl. filler)")
 
     if all_pcm:
-        import wave
-        OUT.mkdir(exist_ok=True)
-        with wave.open(str(OUT / f"{lid}.wav"), "wb") as w:
-            w.setnchannels(1); w.setsampwidth(2); w.setframerate(STREAM_RATE)
-            w.writeframes(b"".join(all_pcm))
+        write_wav(OUT / f"{lid}.wav", b"".join(all_pcm))
+        log_take(lid, reply_text.get("text", ""), "live")
 
 
 def stream_say(ser, text: str, lid: str | None = None):
@@ -450,18 +500,15 @@ def stream_say(ser, text: str, lid: str | None = None):
     secs = cells * CELL / STREAM_RATE
     print(f"[stream] {lid}: {cells} cells ({secs:.1f}s) sent in {time.time()-t0:.2f}s")
 
-    pcm = b"".join(all_pcm)
-    import wave
-    OUT.mkdir(exist_ok=True)
-    with wave.open(str(OUT / f"{lid}.wav"), "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(STREAM_RATE)
-        w.writeframes(pcm)
+    write_wav(OUT / f"{lid}.wav", b"".join(all_pcm))
+    log_take(lid, text, "say")
     return lid
 
 
 # ---------------- stick-mic push-to-talk (whisper + Claude) ----------------
 
-_talk = {"whisper": None, "brain": None, "history": [], "loaded": False}
+_talk = {"whisper": None, "brain": None, "history": [], "loaded": False,
+         "lang": None}    # None = auto-detect; pin via POST /lang (Kazakh needs it)
 _talk_lock = threading.Lock()
 
 
@@ -494,8 +541,8 @@ def handle_mic_audio(pcm16: bytes, ser=None):
         print(f"[mic] {secs:.1f}s — too short, ignored")
         return
 
-    # transcription is fast (~0.4s) — do it first, then pick a path
-    heard = transcribe(_talk["whisper"], audio)
+    # transcription first (auto language detect), then pick a path
+    heard, lang = transcribe(_talk["whisper"], audio, _talk["lang"])
     if not heard:
         print("[mic] heard nothing")
         return
@@ -512,13 +559,14 @@ def handle_mic_audio(pcm16: bytes, ser=None):
             sender.set_mood(mood_of(text))
             sender.feed(pcm)
             sender.finish()
+            log_take(f"quick-{intent}", text, "quick")
             return
 
     # slow path: LLM in the background while the thinking hum plays
     result = {}
     def brain_work():
         try:
-            result["reply"] = think(_talk["brain"], _talk["history"], heard)
+            result["reply"] = think(_talk["brain"], _talk["history"], heard, lang)
             print(f"[mikkey] {result['reply']}")
         except Exception as e:
             print(f"[err] brain failed: {e}")
@@ -784,6 +832,61 @@ def find_stick_port() -> str | None:
     return ports[0] if ports else None
 
 
+# /studio — the screen-recording page for the emotion-tag beat (0:23-0:36):
+# one big "direction" field, one big "line" field, Sing. Change only the
+# direction, Sing again. Also lists script lines (shoot out of order) and the
+# last takes with their master-file ids.
+STUDIO_HTML = """<!doctype html><meta charset=utf-8><title>Mikkey studio</title>
+<style>
+ body{background:#0b0b0f;color:#eee;font:22px/1.4 -apple-system,Helvetica,sans-serif;margin:0;padding:28px 36px}
+ h1{font-size:18px;letter-spacing:.2em;text-transform:uppercase;color:#888;margin:0 0 18px}
+ label{display:block;font-size:14px;letter-spacing:.15em;text-transform:uppercase;color:#777;margin:22px 0 6px}
+ .row{display:flex;align-items:center;gap:0;font:32px/1.3 ui-monospace,Menlo,monospace}
+ .br{color:#ff8a3d;font-weight:600;padding:0 4px}
+ input{background:#15151c;color:#fff;border:2px solid #2a2a36;border-radius:10px;padding:14px 18px;font:inherit;width:100%;outline:none}
+ input:focus{border-color:#ff8a3d}
+ #dir{color:#ff8a3d}
+ button{margin-top:26px;font:600 24px -apple-system,Helvetica,sans-serif;background:#ff8a3d;color:#111;border:0;border-radius:12px;padding:14px 34px;cursor:pointer}
+ button.s{font-size:15px;padding:6px 12px;margin:0 0 0 12px;background:#2a2a36;color:#ddd}
+ #st{margin-left:18px;color:#9ad;font-size:18px}
+ .lines{margin-top:36px;font-size:15px;color:#aaa}
+ .lines div{padding:6px 0;border-top:1px solid #1e1e26;display:flex;align-items:center}
+ .lines span{flex:1}
+ .lines .cur{color:#fff}
+ pre{font-size:13px;color:#777;margin-top:26px;white-space:pre-wrap}
+</style>
+<h1>Mikkey · Fish Audio S2.1 Pro</h1>
+<label>direction</label>
+<div class=row><span class=br>[</span><input id=dir value="sung, theatrical, big Broadway finish"><span class=br>]</span></div>
+<label>line</label>
+<div class=row><input id=line value="Hello, I am Mikkey, and I live on your keys."></div>
+<button id=go>Sing</button><span id=st></span>
+<label>mic language (auto hears Russian/Mandarin fine — pin Kazakh)</label>
+<div id=langs></div>
+<div class=lines id=lines></div>
+<pre id=takes></pre>
+<script>
+const $=id=>document.getElementById(id);
+async function sing(text,id){
+  $('st').textContent='generating…';
+  const r=await fetch('/say',{method:'POST',body:JSON.stringify(id?{text,id}:{text})});
+  const j=await r.json();
+  $('st').textContent=j.error?('error: '+j.error):('queued → '+j.id);
+  refresh();
+}
+$('go').onclick=()=>sing('['+$('dir').value.trim()+'] '+$('line').value.trim());
+for(const el of [$('dir'),$('line')]) el.addEventListener('keydown',e=>{if(e.key==='Enter')$('go').click();});
+async function refresh(){
+  const s=await (await fetch('/script')).json();
+  $('langs').innerHTML=['auto','en','ru','kk','zh'].map(l=>`<button class=s style="margin:0 8px 0 0;${l===s.lang?'background:#ff8a3d;color:#111':''}" onclick="fetch('/lang',{method:'POST',body:JSON.stringify({lang:'${l}'})}).then(refresh)">${l}</button>`).join('');
+  $('lines').innerHTML=s.lines.map((l,i)=>`<div class="${i===s.pos%s.lines.length?'cur':''}"><span><b>${l.id}</b> — ${l.text}</span><button class=s onclick="sing(${JSON.stringify(l.text)},${JSON.stringify(l.id)})">sing</button><button class=s onclick="fetch('/goto',{method:'POST',body:JSON.stringify({pos:${i}})}).then(refresh)">next↑</button></div>`).join('');
+  const t=await (await fetch('/takes')).json();
+  $('takes').textContent=t.takes.map(r=>r.join('  ')).reverse().join('\\n');
+}
+refresh();setInterval(refresh,4000);
+</script>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[http] {self.client_address[0]} {fmt % args}")
@@ -824,6 +927,24 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(pcm)
             print(f"[clip] served {lid}: {len(pcm)//2} samples, {len(env)} env frames")
 
+        elif self.path == "/studio":
+            body = STUDIO_HTML.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif self.path == "/script":
+            with lock:
+                self.send_json({"pos": script_pos, "lines": SCRIPT_LINES, "queue": list(queue),
+                                "lang": _talk["lang"] or "auto"})
+
+        elif self.path == "/takes":
+            p = OUT / "takes.log"
+            rows = p.read_text().splitlines()[-12:] if p.exists() else []
+            self.send_json({"takes": [r.split("\t", 3) for r in rows]})
+
         elif self.path == "/":
             with lock:
                 txt = (f"mikkey server. script pos {script_pos}/{len(SCRIPT_LINES)}, "
@@ -858,6 +979,21 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 print(f"[err] generation failed: {e}")
                 self.send_json({"error": str(e)}, 500)
+
+        elif self.path == "/lang":
+            try:
+                lang = self.read_body_json().get("lang") or None
+                _talk["lang"] = None if lang in (None, "", "auto") else lang
+                print(f"[mic] language: {_talk['lang'] or 'auto'}")
+                self.send_json({"lang": _talk["lang"] or "auto"})
+            except Exception as e:
+                self.send_json({"error": str(e)}, 400)
+
+        elif self.path == "/goto":
+            try:
+                self.send_json(do_goto(int(self.read_body_json()["pos"])))
+            except Exception as e:
+                self.send_json({"error": str(e)}, 400)
         else:
             self.send_json({"error": "not found"}, 404)
 

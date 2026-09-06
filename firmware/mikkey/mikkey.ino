@@ -11,6 +11,11 @@
 //   startles on shake, flies against gravity, naps in a cave, and lip-syncs
 //   the envelope with a big close-up head while singing.
 
+// SHOOT_MODE: filming build. Handling him between takes must never leave him
+// grumpy/fainted on camera, and picking him up while he naps plays the hat
+// wake-up ritual (the hook shot) instead of a startle.
+#define SHOOT_MODE 1
+
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
@@ -237,10 +242,40 @@ static void tryNet() {
   if (link_->available() > 0) return;
   if (WiFi.status() != WL_CONNECTED) {
     if (tcpUp) { tcpUp = false; dragonNetUp = false; if (!tcpEverUp) link_ = &Serial; }
-    if (millis() - lastNetTry > 8000) {
+    // A home router (scan + WPA2 + DHCP) can take >10s to join; restarting
+    // the attempt every 8s ("sta is connecting, cannot set config") never
+    // let it finish. Only kick a definitively failed/stalled attempt.
+    static uint32_t lastStatusLog = 0;
+    wl_status_t st = WiFi.status();
+    if (millis() - lastStatusLog > 5000) {
+      lastStatusLog = millis();
+      Serial.printf("dbg wifi status=%d (waiting for %s)\n", (int)st, WIFI_SSID);
+    }
+    // one-time async scan on the first failure: what does the stick see?
+    static int8_t scanState = 0;             // 0 idle, 1 running, 2 done
+    if (scanState == 0 && millis() - lastNetTry > 12000) {
+      scanState = 1;
+      WiFi.scanNetworks(true, false, false, 300);
+    } else if (scanState == 1) {
+      int n = WiFi.scanComplete();
+      if (n >= 0) {
+        scanState = 2;
+        Serial.printf("dbg wifi scan: %d networks\n", n);
+        for (int i = 0; i < n && i < 12; i++)
+          Serial.printf("dbg   %-28s ch=%2d rssi=%4d auth=%d%s\n", WiFi.SSID(i).c_str(),
+                        WiFi.channel(i), WiFi.RSSI(i), (int)WiFi.encryptionType(i),
+                        WiFi.SSID(i) == WIFI_SSID ? "  <-- target" : "");
+        WiFi.scanDelete();
+        WiFi.begin(WIFI_SSID, WIFI_PASS);    // scan aborted the attempt; restart it
+        lastNetTry = millis();
+      }
+    }
+    bool failed = (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL || st == WL_CONNECTION_LOST);
+    if ((failed && millis() - lastNetTry > 5000) || millis() - lastNetTry > 30000) {
       lastNetTry = millis();
-      Serial.println("dbg wifi connecting...");
+      Serial.println("dbg wifi (re)connecting...");
       WiFi.disconnect();
+      delay(50);
       WiFi.begin(WIFI_SSID, WIFI_PASS);
     }
     return;
@@ -307,9 +342,20 @@ void setup() {
   if (!clipBuf) Serial.println("dbg FATAL: ps_malloc failed");
   Serial.printf("READY board=%d psram=%u\n", (int)M5.getBoard(), ESP.getPsramSize());
 
+  WiFi.onEvent([](WiFiEvent_t ev, WiFiEventInfo_t info) {
+    if (ev == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
+      Serial.printf("dbg wifi disconnected reason=%d\n", (int)info.wifi_sta_disconnected.reason);
+    else if (ev == ARDUINO_EVENT_WIFI_STA_GOT_IP)
+      Serial.printf("dbg wifi ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    else if (ev == ARDUINO_EVENT_WIFI_STA_CONNECTED)
+      Serial.printf("dbg wifi associated ch=%d\n", (int)info.wifi_sta_connected.channel);
+  });
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);   // tiny PCB antenna: every dB counts
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  lastNetTry = millis();
   MDNS.begin("mikkey");
 
   dragonInit();          // IMU calibration (~320ms) + hatch animation

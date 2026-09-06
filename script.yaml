@@ -1,24 +1,45 @@
-# The video's lines, in order. Each button press on Mikkey advances one line.
-# ids matching already-generated clips in out/ are served from cache instantly.
-# Edit freely — new/changed text is generated on demand.
+# The reel's lines, in shoot order. Tap on Mikkey = next line; the /studio
+# page can sing any line directly (shoot out of order) or move the cursor.
+# Every line is pre-generated at server start; masters land in out/<id>.mp3
+# and out/takes.log records what played when. Changing a line's text
+# regenerates it (the id keeps the same file name).
 model: s2.1-pro-free
 # reference_id: ""
 
 lines:
-  - id: sung-theatrical
-    text: "[sung, theatrical, big Broadway finish] Hellooo there, my friend! I am Mikkey, the buddy on your desk, and todaaay is going to be wonderful!"
+  # 0:00 hook — "Mikkey. Say something normal."
+  # (also fires instantly from the mic: any sentence containing "normal"/"talk"/"speak")
+  - id: hook-normal
+    text: "[sung, theatrical, drawn-out, big dramatic finish] I don't knooow how to do thaaat!"
 
-  - id: jingle
-    text: "[sung like a catchy TV jingle, upbeat] Mikkey, Mikkey, the buddy on your desk! Ask him any question, and he'll do his very best!"
+  # 0:08 intro — held up to camera
+  - id: intro-hello
+    text: "[sung, cheerful, like a jingle] Hi hi hiii! I'm Mikkey, the buddy on your keeeys!"
 
-  - id: sea-shanty
-    text: "[sung like a sea shanty, hearty and rhythmic] Ohhh, the WiFi's up and the code compiles, we'll ship this build in a country mile, heave away, my coding boys, heave away, hooray!"
+  # 0:23 emotion tags — SAME line, two directions. Record from /studio.
+  - id: tag-broadway
+    text: "[sung, theatrical, big Broadway finish] Hello, I am Mikkey, and I live on your keys."
+  - id: tag-lullaby
+    text: "[breathy, sing-song, like a lullaby] Hello, I am Mikkey, and I live on your keys."
+  - id: tag-rock
+    text: "[sung like a stadium rock anthem, powerful, shouty] Hello, I am Mikkey, and I live on your keys!"
+  - id: tag-sad
+    text: "[sung as a slow sad ballad, mournful] Hello... I am Mikkey... and I live... on your keys..."
 
+  # 0:36 languages — scripted fallbacks if the live mic misbehaves
+  - id: ru-hello
+    text: "[sung, cheerful, playful] Привееет! Я Микки, и я живу на твоих ключаааах!"
+  - id: kk-hello
+    text: "[sung, cheerful] Сәлеем! Мен Миккимін, кілттеріңде тұрамыыын!"
+  - id: zh-hello
+    text: "[sung, cheerful, sing-song] 你好呀！我是米奇，我住在你的钥匙上！"
+
+  # 0:48 CTA button — Mikkey back on the keys
+  - id: cta-tonight
+    text: "[sung, warm, big finish] You could have your ooown by tonight!"
+
+  # spares
   - id: sad-ballad
-    text: "[sung as a slow sad ballad, mournful] Nobody... pressed my buttonnnn... all daaay... I sat here... just blinkiiing... awaaaay..."
-
-  - id: rock-anthem
-    text: "[sung like a stadium rock anthem, powerful, shouty] ARE YOU READY?! To WRITE! SOME! COOOODE! Yeah! Let's gooooo!"
-
+    text: "[sung as a slow sad ballad, mournful] Nobody... pressed my buttonnnn... all daaay... I hung here... just blinkiiing... awaaaay..."
   - id: humming
     text: "[humming a cheerful tune, wordless] Hmm hmm hm-hm-hmmm, hmm hm hmmm, hm hm hm hmm hmmmm!"

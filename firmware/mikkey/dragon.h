@@ -260,7 +260,11 @@ static uint32_t quietUntil = 0;      // sad-song aftermath: no bouncing
 static uint8_t clamp100(int v) { return (uint8_t)constrain(v, 0, 100); }
 #define ME_ADD(d) mE = clamp100((int)mE + (d))
 #define MH_ADD(d) mH = clamp100((int)mH + (d))
+#if SHOOT_MODE
+#define MG_ADD(d) do {} while (0)          // filming: indignity never accumulates
+#else
 #define MG_ADD(d) mG = clamp100((int)mG + (d))
+#endif
 
 static bool dragonSleepy() {
   static int batt = 100;
@@ -938,10 +942,16 @@ static void faceTick() {
   if (B.wantStartle) {
     B.wantStartle = false;
     lastActivity2 = now;
-    MG_ADD(30);
-    if (life == L_DEEPSLEEP || life == L_CAVE_NAP) M5.Display.setBrightness(200);
-    M5.Speaker.tone(880, 40);
-    lifeEnter(L_STARTLE, 1000, 1001);
+    if (life == L_DEEPSLEEP || life == L_CAVE_NAP || life == L_PEEK) {
+      // picked up while napping: wake ritual (stir, rub eyes, hat flips on)
+      M5.Display.setBrightness(200);
+      B.mode = M_GROUND;
+      lifeEnter(L_WAKE, 3500, 3501);
+    } else {
+      MG_ADD(30);
+      M5.Speaker.tone(880, 40);
+      lifeEnter(L_STARTLE, 1000, 1001);
+    }
   }
   if (B.wantTumble) {
     B.wantTumble = false;

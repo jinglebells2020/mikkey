@@ -1,6 +1,6 @@
 # Mikkey — singing desk buddy
 
-A M5StickS3 body + a laptop brain. Everything Mikkey says is sung (Fish Audio
+A M5StickS3 body on a keychain + a laptop brain. Everything Mikkey says is sung (Fish Audio
 S2.1). The stick records your question (hold the button), the laptop
 transcribes it (faster-whisper), writes a reply in character (OpenRouter,
 gpt-oss-120b), and streams the sung answer back with a mouth-sync envelope.
@@ -21,24 +21,49 @@ gpt-oss-120b), and streams the sung answer back with a mouth-sync envelope.
   ~250 kB/s or the CDC stalls permanently; the RX ring silently drops bytes if
   flooded while the firmware draws — streams are paced ~1.4x real-time.
 
-## Filming day
+## Filming day (Fish Audio reel — script v5)
 
 ```
-./run.sh          # preflight + server with auto-restart + timestamps
+./run.sh                       # preflight + server with auto-restart + timestamps
+open http://localhost:8090/studio   # the on-screen tool for the emotion-tag beat
 ```
 
-1. Phone hotspot ON with **Maximize Compatibility** (ESP32 is 2.4GHz-only).
-   Laptop on the hotspot. Keep the phone plugged in and near Mikkey.
-2. Power the stick (battery lasts <1h — use a USB power bank for long takes;
-   power-only is fine, data cable optional).
-3. Blue dot top-left on the stick = TCP link up. Grey = USB fallback.
-4. **Tap** the button = next script.yaml line. **Hold** = push-to-talk.
-5. Everything Mikkey sang lives in `out/` (mp3 for scripted lines, wav for
-   live answers) — those are the video-edit masters.
+1. Network: the stick joins the SSID in `firmware/mikkey/wifi_config.h`
+   (`./set_wifi.sh "<ssid>" "<pass>"` rewrites it and reflashes). Home routers
+   with band steering / weak 2.4 GHz can refuse the stick (see below); the
+   phone hotspot with **Maximize Compatibility** is the known-good fallback.
+2. Power the stick (battery lasts <1h — USB power bank for long takes).
+3. Blue dot top-left = TCP link up. Grey = USB fallback.
+4. **Tap** = next `script.yaml` line, in shoot order. **Hold** = push-to-talk.
+   `/studio` can sing any line directly or move the cursor (shoot out of order).
+5. Masters: every line Mikkey sang is in `out/` (mp3 for scripted, wav for live
+   and canned) and `out/takes.log` says what played when, with the file id.
+
+Beat by beat:
+
+- **Hook (0:00)** — hold the button and ask "Mikkey, say something normal":
+  any sentence with *normal / talk / speak* fires the cached hook line
+  instantly (also line 1 on tap). Picking him up while he naps plays the
+  wake-up ritual (hat flips on) instead of a startle — that is the
+  "screen lights up" shot; let him nap ~60 s first.
+- **Emotion tags (0:23)** — record `/studio`: two big fields, *direction* and
+  *line*. Sing, change only the direction, Sing again. Masters land in
+  `out/say-<time>.mp3`. Lines `tag-broadway` / `tag-lullaby` are pre-generated
+  as tap fallbacks.
+- **He hears you (0:36)** — hold, friend speaks Russian, release. Whisper
+  auto-detects Russian and Mandarin reliably; **Kazakh is heard as Turkish**,
+  so pin `kk` on `/studio` before that cut (then back to `auto`). The reply is
+  sung in the speaker's language; the bracket tag is forced to English.
+  Scripted `ru-hello` / `kk-hello` / `zh-hello` exist as fallbacks.
+- **SHOOT_MODE** (firmware): handling never makes him grumpy; naps still happen.
 
 Failure behavior (all sung/visible, never silent): brain or TTS failure ->
 sung apology; link loss -> clip requeued and replayed; errors show a face +
 reason on the LCD; battery <20% shows a glyph, <10% blinks.
+
+WiFi diagnostics: the stick prints `dbg wifi ...` on USB serial — a scan of
+what it sees, the disconnect reason (2/4 = AP not answering, 15 = WPA2
+handshake timeout) and its IP once joined.
 
 ## Files
 
@@ -47,7 +72,9 @@ reason on the LCD; battery <20% shows a glyph, <10% blinks.
 - `firmware/mikkey/` — StickS3 firmware (face state machine, audio, mic, links).
   Flash: `arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB" firmware/mikkey && arduino-cli upload ... -p /dev/cu.usbmodem*`
   Config: copy `firmware/mikkey/wifi_config.h.example` -> `wifi_config.h`.
-- `script.yaml` — the video's lines, in order (pre-generated at server start).
+- `script.yaml` — the reel's lines, in shoot order (pre-generated at server start;
+  changing a line's text regenerates it).
+- `set_wifi.sh` — rewrite wifi_config.h for a new SSID and reflash.
 - `sing_test.py` / `audio_pipeline.py` — TTS test harness / offline PCM+envelope
   tools (`preview <id>` shows an ASCII mouth synced to laptop playback).
 - `mikkey_talk.py` — laptop-mic push-to-talk (fallback if the stick mic fails).

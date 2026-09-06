@@ -12,6 +12,7 @@ Run:  .venv/bin/python mikkey_talk.py
 
 import json
 import os
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -26,14 +27,46 @@ load_dotenv(ROOT / ".env")
 SERVER = "http://localhost:8090"
 MIC_RATE = 16000
 MIKKEY_STYLE = "[sung, theatrical]"  # default style tag; tweak after style verdict
+# whisper "base" auto-detects ru/zh at 0.99 in ~0.7s; "small" is 3x slower and
+# no better at Kazakh (both hear Turkish) — Kazakh must be pinned (POST /lang).
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 
-SYSTEM = f"""You are Mikkey, a tiny singing robot buddy who lives on a desk.
-You are cheerful, a little dramatic, and you sing EVERYTHING instead of speaking.
+SYSTEM = f"""You are Mikkey, a tiny AI buddy who lives on a keychain. You physically
+cannot speak — everything you say comes out SUNG. You are warm, hammy, a little
+vain, and you wear a small 3D-printed hat that does nothing. You keep the hat.
 
-Reply with exactly ONE short line (max ~20 words) that will be sung out loud
-by a TTS voice. Start the line with a style tag in square brackets, like
-{MIKKEY_STYLE} or [sung like a sad ballad] — pick whichever fits the mood of
-your reply. No quotes, no explanations, just the tag and the line."""
+Reply with exactly ONE short line (max ~15 words) that will be sung out loud
+by a TTS voice. Start the line with a style tag in square brackets, in ENGLISH,
+like {MIKKEY_STYLE}, [sung like a sad ballad] or [breathy, sing-song, like a
+lullaby] — pick whichever fits the mood. Stretch a vowel or two so it sings
+(heyyy, thaaat). No quotes, no explanations, just the tag and the line.
+
+LANGUAGE RULE: sing your reply in the SAME language the human spoke to you in
+(Russian -> Russian, Kazakh -> Kazakh, Mandarin -> Mandarin, ...). The bracket
+tag is ALWAYS English, whatever the language of the line, e.g.
+[sung, cheerful, playful] Привееет, я Микки, я живу на твоих ключааах!
+If asked to "say something normal" or to talk instead of sing, you cannot —
+sing about that, dramatically."""
+
+DEFAULT_TAG = "[sung, cheerful, playful]"
+
+
+def fix_tag(reply: str) -> str:
+    """Fish reads the direction in [brackets]; it must be ASCII English or the
+    model sings the tag out loud. Replace a non-English tag, add a missing one."""
+    reply = reply.strip().strip('"')
+    m = re.match(r"\s*\[([^\]]*)\]\s*(.*)", reply, re.S)
+    if not m:
+        return f"{DEFAULT_TAG} {reply}"
+    tag, line = m.group(1), m.group(2).strip()
+    if not tag.isascii() or not tag.strip():
+        print(f"[brain] non-English tag {tag!r} -> {DEFAULT_TAG}")
+        return f"{DEFAULT_TAG} {line}"
+    return f"[{tag}] {line}"
+
+LANG_NAMES = {"en": "English", "ru": "Russian", "kk": "Kazakh", "zh": "Mandarin Chinese",
+              "tr": "Turkish", "de": "German", "fr": "French", "es": "Spanish",
+              "ja": "Japanese", "ko": "Korean", "uk": "Ukrainian", "it": "Italian"}
 
 CANNED = [
     f"{MIKKEY_STYLE} Oh what a wonderful question, my friend, but my brain is offliiine!",
@@ -59,17 +92,21 @@ def record() -> np.ndarray:
 
 def load_whisper():
     from faster_whisper import WhisperModel
-    print("[stt] loading whisper (first run downloads the model)...")
-    model = WhisperModel("base", device="cpu", compute_type="int8")
+    print(f"[stt] loading whisper {WHISPER_MODEL!r} (first run downloads the model)...")
+    model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
     print("[stt] ready")
     return model
 
 
-def transcribe(model, audio: np.ndarray) -> str:
-    segments, _info = model.transcribe(audio, language="en")
+def transcribe(model, audio: np.ndarray, language: str | None = None):
+    """-> (text, lang). Language auto-detected unless pinned via WHISPER_LANG."""
+    lang = language or os.environ.get("WHISPER_LANG") or None
+    segments, info = model.transcribe(audio, language=lang, beam_size=1,
+                                      vad_filter=False, condition_on_previous_text=False)
     text = " ".join(s.text.strip() for s in segments).strip()
-    print(f"[stt] heard: {text!r}")
-    return text
+    detected = info.language if lang is None else lang
+    print(f"[stt] heard ({detected} {info.language_probability:.2f}): {text!r}")
+    return text, detected
 
 
 def make_brain():
@@ -86,12 +123,15 @@ def make_brain():
     return None
 
 
-def think(brain, history: list, heard: str) -> str:
+def think(brain, history: list, heard: str, lang: str | None = None) -> str:
     global canned_idx
     if brain is None:
         reply = CANNED[canned_idx % len(CANNED)]
         canned_idx += 1
         return reply
+    if lang and lang != "en":
+        name = LANG_NAMES.get(lang, lang)
+        heard = f"{heard}\n(the human spoke {name} — sing your reply in {name})"
     history.append({"role": "user", "content": heard})
     if brain["kind"] == "openrouter":
         req = urllib.request.Request(
@@ -115,6 +155,7 @@ def think(brain, history: list, heard: str) -> str:
             messages=history[-10:],
         )
         reply = next((b.text for b in response.content if b.type == "text"), "").strip()
+    reply = fix_tag(reply)
     history.append({"role": "assistant", "content": reply})
     return reply
 
@@ -144,12 +185,12 @@ def main():
         if len(audio) < MIC_RATE // 2:
             print("[mic] too short, try again")
             continue
-        heard = transcribe(whisper, audio)
+        heard, lang = transcribe(whisper, audio)
         if not heard:
             print("[stt] heard nothing, try again")
             continue
         try:
-            reply = think(brain, history, heard)
+            reply = think(brain, history, heard, lang)
         except Exception as e:
             print(f"[err] think failed ({e}) — using canned line")
             global canned_idx
