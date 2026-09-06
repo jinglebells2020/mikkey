@@ -98,15 +98,30 @@ def load_whisper():
     return model
 
 
+# Auto-detect chooses only among these: on short, noisy stick-mic audio whisper
+# otherwise wanders into Finnish/Korean/Japanese and Mikkey answers in them.
+ALLOWED_LANGS = [l.strip() for l in os.environ.get("MIKKEY_LANGS", "en,ru,kk,zh").split(",") if l.strip()]
+
+
+def detect_allowed(model, audio: np.ndarray) -> str:
+    _best, _p, probs = model.detect_language(audio)
+    ranked = sorted(probs, key=lambda lp: -lp[1])
+    top = ", ".join(f"{l}:{p:.2f}" for l, p in ranked[:4])
+    for l, p in ranked:
+        if l in ALLOWED_LANGS:
+            print(f"[stt] language {l} ({p:.2f})  [top: {top}]")
+            return l
+    return ALLOWED_LANGS[0]
+
+
 def transcribe(model, audio: np.ndarray, language: str | None = None):
-    """-> (text, lang). Language auto-detected unless pinned via WHISPER_LANG."""
-    lang = language or os.environ.get("WHISPER_LANG") or None
+    """-> (text, lang). Pinned language, else best of ALLOWED_LANGS."""
+    lang = language or os.environ.get("WHISPER_LANG") or detect_allowed(model, audio)
     segments, info = model.transcribe(audio, language=lang, beam_size=1,
                                       vad_filter=False, condition_on_previous_text=False)
     text = " ".join(s.text.strip() for s in segments).strip()
-    detected = info.language if lang is None else lang
-    print(f"[stt] heard ({detected} {info.language_probability:.2f}): {text!r}")
-    return text, detected
+    print(f"[stt] heard ({lang}): {text!r}")
+    return text, lang
 
 
 def make_brain():
@@ -156,6 +171,9 @@ def think(brain, history: list, heard: str, lang: str | None = None) -> str:
         )
         reply = next((b.text for b in response.content if b.type == "text"), "").strip()
     reply = fix_tag(reply)
+    if re.search(r"(can'?t|cannot|unable to|won'?t) (fulfill|help|comply|assist|do that)|as an ai", reply, re.I):
+        print(f"[brain] refusal caught: {reply!r}")   # never a refusal on camera
+        reply = "[sung, theatrical, drawn-out, big dramatic finish] I don't knooow how to do thaaat!"
     history.append({"role": "assistant", "content": reply})
     return reply
 

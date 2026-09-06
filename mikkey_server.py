@@ -391,7 +391,7 @@ def pick_filler() -> bytes:
     return (CACHE / f"filler-{_filler_last}.pcm24").read_bytes()
 
 
-def stream_live(ser, filler_pcm: bytes, get_reply):
+def stream_live(ser, filler_pcm: bytes, get_reply, heard_info: dict | None = None):
     """One continuous stream: thinking-hum filler -> silence padding while the
     brain/Fish work -> the sung answer. get_reply() blocks until the reply
     text is ready (or returns None)."""
@@ -399,6 +399,7 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
     q = queue_mod.Queue()
     lid = f"say-{int(time.time())}"
     reply_text = {}
+    heard_info = heard_info or {}
 
     def feeder():
         text = get_reply()
@@ -453,7 +454,7 @@ def stream_live(ser, filler_pcm: bytes, get_reply):
 
     if all_pcm:
         write_wav(OUT / f"{lid}.wav", b"".join(all_pcm))
-        log_take(lid, reply_text.get("text", ""), "live")
+        log_take(lid, f"{reply_text.get('text', '')}   (heard {heard_info.get('lang', '?')}: {heard_info.get('text', '')})", "live")
 
 
 def stream_say(ser, text: str, lid: str | None = None):
@@ -543,6 +544,8 @@ def handle_mic_audio(pcm16: bytes, ser=None):
     if secs < 0.5:
         print(f"[mic] {secs:.1f}s — too short, ignored")
         return
+    mic_id = f"mic-{int(time.time())}"
+    write_wav(OUT / f"{mic_id}.wav", pcm16, 16000)   # what the stick heard, for diagnosis
 
     # transcription first (auto language detect), then pick a path
     heard, lang = transcribe(_talk["whisper"], audio, _talk["lang"])
@@ -562,7 +565,7 @@ def handle_mic_audio(pcm16: bytes, ser=None):
             sender.set_mood(mood_of(text))
             sender.feed(pcm)
             sender.finish()
-            log_take(f"quick-{intent}", text, "quick")
+            log_take(f"quick-{intent}", f"{text}   (heard {lang}: {heard})", "quick")
             return
 
     # slow path: LLM in the background while the thinking hum plays
@@ -586,7 +589,7 @@ def handle_mic_audio(pcm16: bytes, ser=None):
         th.join()
         return result.get("reply")
     try:
-        stream_live(ser, pick_filler(), get_reply)
+        stream_live(ser, pick_filler(), get_reply, {"text": heard, "lang": lang})
     except Exception as e:
         print(f"[err] live stream failed ({e}), falling back to queued path")
         th.join()
@@ -727,6 +730,7 @@ def link_worker(conn, name: str, heartbeat: bool):
                 continue
             if not line.startswith("POLL"):
                 print(f"[stick/{name}] {line}")
+                note_stick_line(line)
             if line == "TRIG":
                 try:
                     do_trigger()
@@ -835,6 +839,82 @@ def find_stick_port() -> str | None:
     return ports[0] if ports else None
 
 
+# ---------------- /preview: the animation in a browser ----------------------
+# Renders the firmware's own sprite sheet (dragon_art.h) and drives the
+# singing mouth with the same envelope + jaw smoothing the stick uses.
+
+_state = {"face": "?", "log": []}     # mirrored from the stick's dbg lines
+
+
+def note_stick_line(line: str) -> None:
+    if line.startswith("dbg face -> "):
+        _state["face"] = line.split("-> ", 1)[1]
+    _state["log"] = (_state["log"] + [line])[-30:]
+
+
+def load_sprites() -> dict:
+    """Parse dragon_art.h: DPAL (rgb565) + PX_* arrays + DSprite dims."""
+    import re
+    src = (ROOT / "firmware" / "mikkey" / "dragon_art.h").read_text()
+    pal565 = [int(x, 16) for x in re.search(r"DPAL\[8\] = \{([^}]*)\}", src).group(1).split(",")]
+    def css(c):
+        r = (c >> 11) & 31; g = (c >> 5) & 63; b = c & 31
+        return "#%02x%02x%02x" % (r * 255 // 31, g * 255 // 63, b * 255 // 31)
+    px = {m.group(1): [int(v) for v in m.group(2).split(",") if v.strip()]
+          for m in re.finditer(r"PX_(\w+)\[\] = \{([^}]*)\}", src)}
+    sprites = {}
+    for m in re.finditer(r"SPR_(\w+) = \{(\d+), (\d+), PX_(\w+)\}", src):
+        sprites[m.group(1)] = {"w": int(m.group(2)), "h": int(m.group(3)), "px": px[m.group(4)]}
+    return {"pal": [css(c) for c in pal565], "sprites": sprites}
+
+
+def list_clips() -> list:
+    """Every master in out/ (mp3 or wav) with its text, newest first."""
+    texts = {}
+    log = OUT / "takes.log"
+    if log.exists():
+        for row in log.read_text().splitlines():
+            parts = row.split("\t", 3)
+            if len(parts) == 4:
+                texts[parts[2]] = parts[3]
+    clips = {}
+    for f in list(OUT.glob("*.mp3")) + list(OUT.glob("*.wav")):
+        lid = f.stem
+        if lid in clips:
+            continue
+        side = next((p for p in (OUT / f"{lid}.txt", CACHE / f"{lid}.txt") if p.exists()), None)
+        text = side.read_text() if side else texts.get(lid, "")
+        clips[lid] = {"id": lid, "kind": f.suffix[1:], "text": text,
+                      "mtime": f.stat().st_mtime,
+                      "device": (CACHE / f"{lid}.pcm").exists() or (OUT / f"{lid}.txt").exists()}
+    return sorted(clips.values(), key=lambda c: -c["mtime"])
+
+
+def envelope_for(lid: str) -> dict | None:
+    """{fps, env[]} — cached .env (fixed-clip path, 50 fps) or computed from a
+    live wav exactly like CellSender does (24 kHz / 441 = 54.4 fps, drawn on
+    even cells only)."""
+    import numpy as np
+    envf = CACHE / f"{lid}.env"
+    if envf.exists():
+        return {"fps": SAMPLE_RATE / CELL, "env": list(envf.read_bytes()), "every": 1}
+    wav = OUT / f"{lid}.wav"
+    if not wav.exists():
+        return None
+    import wave
+    with wave.open(str(wav)) as w:
+        rate = w.getframerate()
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float64)
+    n = len(pcm) // CELL
+    cells = pcm[: n * CELL].reshape(n, CELL)
+    rms = np.minimum(np.sqrt((cells ** 2).mean(axis=1)) / REF_RMS, 1.0)
+    env, out = 0.0, []
+    for r in rms:
+        env += (ATTACK if r > env else DECAY) * (r - env)
+        out.append(int((max(env, FLOOR) if r > SILENCE else env) * 255))
+    return {"fps": rate / CELL, "env": out, "every": 2}
+
+
 # /studio — the screen-recording page for the emotion-tag beat (0:23-0:36):
 # one big "direction" field, one big "line" field, Sing. Change only the
 # direction, Sing again. Also lists script lines (shoot out of order) and the
@@ -934,6 +1014,42 @@ class Handler(BaseHTTPRequestHandler):
             body = STUDIO_HTML.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif self.path == "/preview":
+            body = (ROOT / "web" / "preview.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif self.path == "/sprites":
+            self.send_json(load_sprites())
+
+        elif self.path == "/clips":
+            self.send_json({"clips": list_clips()})
+
+        elif self.path == "/state":
+            with lock:
+                q = list(queue)
+            self.send_json({"face": _state["face"], "log": _state["log"], "queue": q})
+
+        elif self.path.startswith("/env/"):
+            e = envelope_for(self.path.split("/env/", 1)[1])
+            self.send_json(e if e else {"error": "no envelope"}, 200 if e else 404)
+
+        elif self.path.startswith("/audio/"):
+            lid = self.path.split("/audio/", 1)[1]
+            f = next((OUT / f"{lid}{ext}" for ext in (".mp3", ".wav") if (OUT / f"{lid}{ext}").exists()), None)
+            if not f:
+                self.send_json({"error": "no such clip"}, 404)
+                return
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg" if f.suffix == ".mp3" else "audio/wav")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

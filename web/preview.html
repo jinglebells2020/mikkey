@@ -1,0 +1,113 @@
+<!doctype html><meta charset=utf-8><title>Mikkey preview</title>
+<style>
+ body{background:#0b0b0f;color:#ddd;font:15px/1.4 -apple-system,Helvetica,sans-serif;margin:0;padding:22px 28px;display:grid;grid-template-columns:740px 1fr;gap:28px}
+ h1{font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#777;margin:0 0 10px}
+ canvas{image-rendering:pixelated;background:#000;border-radius:14px;display:block}
+ #lcd{box-shadow:0 0 0 10px #1a1a22,0 0 40px #000}
+ .bar{display:flex;gap:14px;align-items:center;margin:16px 0;color:#9ad}
+ .bar b{color:#fff}
+ .clips{max-height:70vh;overflow:auto;border-top:1px solid #1e1e26}
+ .clips div{display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #1e1e26;font-size:13px;color:#aaa}
+ .clips span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .clips b{color:#eee;font-family:ui-monospace,Menlo,monospace;font-weight:500;min-width:150px}
+ button{font:600 13px -apple-system,Helvetica,sans-serif;background:#2a2a36;color:#ddd;border:0;border-radius:8px;padding:6px 12px;cursor:pointer}
+ button.p{background:#ff8a3d;color:#111}
+ #gal{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+ #gal figure{margin:0;text-align:center;font-size:10px;color:#666}
+ #gal canvas{background:#111;border-radius:6px}
+ pre{font:11px/1.5 ui-monospace,Menlo,monospace;color:#6a6a78;max-height:170px;overflow:auto;margin:10px 0 0}
+ label{color:#777;font-size:12px}
+</style>
+<div>
+ <h1>Mikkey · screen (240×135, ×3)</h1>
+ <canvas id=lcd width=240 height=135 style="width:720px;height:405px"></canvas>
+ <div class=bar>
+  <span>preview: <b id=pv>idle</b></span>
+  <span>device: <b id=dev>?</b></span>
+  <span id=now style="flex:1;color:#ccc"></span>
+  <label><input type=checkbox id=squint checked> jaw smoothing like firmware</label>
+ </div>
+ <h1>Sprite sheet (dragon_art.h)</h1>
+ <div id=gal></div>
+ <pre id=log></pre>
+</div>
+<div>
+ <h1>Clips in out/ — ▶ plays here with lip-sync · ⬆ sings on the stick</h1>
+ <div class=clips id=clips></div>
+</div>
+<audio id=au></audio>
+<script>
+const $=id=>document.getElementById(id);
+let SH=null, PAL=null, playing=null;   // playing = {env,fps,every,jaw,wideRun,last,cur}
+const lcd=$('lcd').getContext('2d');
+function drawSpr(ctx,s,x,y,sc,flip){
+  for(let cy=0;cy<s.h;cy++)for(let cx=0;cx<s.w;cx++){
+    const v=s.px[cy*s.w+(flip?s.w-1-cx:cx)]; if(!v)continue;
+    ctx.fillStyle=PAL[v]; ctx.fillRect(x+cx*sc,y+cy*sc,sc,sc);
+  }
+}
+function singSprite(){
+  const p=playing; if(!p)return SH.SING_CLOSED;
+  const j=p.jaw;
+  if(j<64){p.wideRun=0;return SH.SING_CLOSED}
+  if(j<160){p.wideRun=0;return SH.SING_HALF}
+  return SH.SING_WIDE_SQUINT&&p.wideRun>=8?SH.SING_WIDE_SQUINT:SH.SING_WIDE;
+}
+function step(){
+  const p=playing, au=$('au');
+  if(p){
+    const f=Math.floor(au.currentTime*p.fps);
+    while(p.cur<Math.min(f,p.env.length-1)){           // advance jaw frame by frame, stateful like the stick
+      p.cur++;
+      if(p.cur%p.every)continue;
+      const t=p.env[p.cur];
+      if($('squint').checked){ if(t>p.jaw)p.jaw+=(t-p.jaw)>>1; else p.jaw-=(p.jaw-t)>>2; } else p.jaw=t;
+      const s=singSprite(); if(s!==p.last){p.last=s;p.wideRunSeen=p.wideRun}
+      if(p.jaw>=160)p.wideRun=Math.min(p.wideRun+1,30);
+    }
+    lcd.fillStyle='#000';lcd.fillRect(0,0,240,135);
+    for(let i=0;i<3;i++){lcd.fillStyle=Math.random()<.5?'#fff':'#ff88ff';lcd.fillRect(Math.random()*234|0,Math.random()*129|0,3,3)}
+    drawSpr(lcd,singSprite(),60,20,6,false);
+    $('now').textContent=`${au.currentTime.toFixed(2)}s · env ${p.env[Math.min(p.cur,p.env.length-1)]} · jaw ${p.jaw}`;
+    if(au.ended||au.paused&&au.currentTime>=au.duration-.01){playing=null;$('pv').textContent='idle';$('now').textContent=''}
+  }else{
+    lcd.fillStyle='#000';lcd.fillRect(0,0,240,135);
+    lcd.fillStyle='#632c';lcd.beginPath();lcd.roundRect(0,81,62,54,14);lcd.fill();
+    lcd.fillStyle='#212121';lcd.beginPath();lcd.roundRect(10,95,42,40,10);lcd.fill();
+    const s=(Date.now()/500|0)&1?SH.IDLE_A:SH.IDLE_B;
+    drawSpr(lcd,s,(240-s.w*5)/2,135-s.h*5,5,false);
+  }
+  lcd.fillStyle=window.devUp?'#33ccff':'#7b7b7b';lcd.beginPath();lcd.arc(8,10,4,0,7);lcd.fill();
+  requestAnimationFrame(step);
+}
+async function play(id){
+  const e=await (await fetch('/env/'+id)).json();
+  if(e.error){alert('no envelope for '+id);return}
+  const au=$('au'); au.src='/audio/'+id; await au.play();
+  playing={env:e.env,fps:e.fps,every:e.every,jaw:0,wideRun:0,last:null,cur:-1};
+  $('pv').textContent='SING '+id;
+}
+async function device(id,text){ await fetch('/say',{method:'POST',body:JSON.stringify({id,text})}); refresh(); }
+async function refresh(){
+  const c=(await (await fetch('/clips')).json()).clips;
+  $('clips').innerHTML=c.map(k=>`<div><button class=p onclick="play('${k.id}')">▶</button>${k.device?`<button onclick='device(${JSON.stringify(k.id)},${JSON.stringify(k.text)})'>⬆</button>`:'<button disabled>·</button>'}<b>${k.id}</b><span title="${k.text.replace(/"/g,'&quot;')}">${k.text||'<i>(live turn)</i>'}</span><em style="color:#555">${k.kind}</em></div>`).join('');
+  const st=await (await fetch('/state')).json();
+  $('dev').textContent=st.face+(st.queue.length?` · queue ${st.queue.join(',')}`:'');
+  window.devUp=st.log.some(l=>l.includes('tcp connected'));
+  $('log').textContent=st.log.slice(-12).join('\n');
+}
+(async()=>{
+  const d=await (await fetch('/sprites')).json(); PAL=d.pal; SH=d.sprites;
+  const pairs={IDLE:['IDLE_A','IDLE_B'],WALK:['WALK_A','WALK_B'],SPIN:['SPIN_A','SPIN_B'],SLEEP:['SLEEP_A','SLEEP_B'],SING:['SING_CLOSED','SING_HALF','SING_WIDE','SING_WIDE_SQUINT']};
+  const singles=Object.keys(SH).filter(n=>!Object.values(pairs).flat().includes(n));
+  const items=[...Object.entries(pairs),...singles.map(n=>[n,[n]])];
+  for(const [name,frames] of items){
+    const fig=document.createElement('figure');const cv=document.createElement('canvas');
+    const w=Math.max(...frames.map(f=>SH[f].w)),h=Math.max(...frames.map(f=>SH[f].h));
+    cv.width=w*3;cv.height=h*3;cv.style.width=(w*3)+'px';fig.appendChild(cv);fig.appendChild(document.createTextNode(name.toLowerCase()));$('gal').appendChild(fig);
+    const ctx=cv.getContext('2d');let i=0;
+    setInterval(()=>{ctx.clearRect(0,0,cv.width,cv.height);drawSpr(ctx,SH[frames[i++%frames.length]],0,0,3,false)},400);
+  }
+  refresh();setInterval(refresh,2000);step();
+})();
+</script>
