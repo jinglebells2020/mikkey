@@ -133,6 +133,9 @@ def do_trigger() -> dict:
 
 def do_say(text: str, lid: str | None = None) -> dict:
     lid = lid or f"say-{int(time.time())}"
+    for line in SCRIPT_LINES:          # a script id always means the script's text
+        if line["id"] == lid:          # (never overwrite a master by accident)
+            text = line["text"]
     ensure_clip(lid, text)
     with lock:
         queue.append(lid)

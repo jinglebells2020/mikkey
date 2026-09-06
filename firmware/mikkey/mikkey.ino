@@ -61,6 +61,7 @@ static const uint32_t CHUNK = 441;
 static const size_t ENV_MAX = 16384;
 static const size_t PCM_MAX = 4 * 1024 * 1024;
 static uint8_t envBuf[ENV_MAX];
+static uint32_t lastDrawUs = 0;
 static int16_t *clipBuf = nullptr;
 
 static void pollButton() {
@@ -115,12 +116,22 @@ static void playClip(uint32_t rate, uint32_t nSamples, uint32_t nEnv) {
 
   playing = true;
   uint32_t framesDone = 0, underruns = 0, remaining = nSamples;
+  bool spkStarted = false;   // the speaker task takes a few frames to spin up
   while (remaining > 0) {
     uint32_t take = remaining < CHUNK ? remaining : CHUNK;
     while (M5.Speaker.isPlaying(0) >= 2) { pollButton(); delay(1); }
-    if (framesDone > 0 && M5.Speaker.isPlaying(0) == 0) underruns++;
+    if (M5.Speaker.isPlaying(0) > 0) spkStarted = true;
+    else if (spkStarted) {
+      underruns++;   // real starvation mid-clip: audible gap
+      if (underruns <= 3) Serial.printf("dbg underrun at frame %lu (draw %lu us)\n",
+                                        (unsigned long)framesDone, (unsigned long)lastDrawUs);
+    }
     M5.Speaker.playRaw(clipBuf + framesDone * CHUNK, take, rate, false, 1, 0);
-    if (framesDone < nEnv) singMouthFrame(envBuf[framesDone]);
+    if (framesDone < nEnv) {
+      uint32_t d0 = micros();
+      singMouthFrame(envBuf[framesDone]);
+      lastDrawUs = micros() - d0;
+    }
     framesDone++;
     remaining -= take;
   }
@@ -141,6 +152,7 @@ static void playClipStream(uint32_t rate) {
   bool done = false, started = false;
   uint32_t lastData = millis();
 
+  bool spkStarted = false;
   while (true) {
     while (!done && link_->available()) {
       int tc = link_->read();
@@ -180,7 +192,8 @@ static void playClipStream(uint32_t rate) {
       link_->println("PLAY");
     }
     if (started && played < cells && M5.Speaker.isPlaying(0) < 2) {
-      if (played > 0 && M5.Speaker.isPlaying(0) == 0) underruns++;
+      if (M5.Speaker.isPlaying(0) > 0) spkStarted = true;
+      else if (spkStarted) underruns++;
       M5.Speaker.playRaw(clipBuf + (size_t)played * 441, 441, rate, false, 1, 0);
       if ((played & 1) == 0) singMouthFrame(envBuf[played]);
       played++;
@@ -270,8 +283,9 @@ static void tryNet() {
         lastNetTry = millis();
       }
     }
-    bool failed = (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL || st == WL_CONNECTION_LOST);
-    if ((failed && millis() - lastNetTry > 5000) || millis() - lastNetTry > 30000) {
+    bool failed = (st == WL_CONNECT_FAILED || st == WL_NO_SSID_AVAIL ||
+                   st == WL_CONNECTION_LOST || st == WL_DISCONNECTED);
+    if ((failed && millis() - lastNetTry > 15000) || millis() - lastNetTry > 30000) {
       lastNetTry = millis();
       Serial.println("dbg wifi (re)connecting...");
       WiFi.disconnect();
@@ -343,8 +357,17 @@ void setup() {
   Serial.printf("READY board=%d psram=%u\n", (int)M5.getBoard(), ESP.getPsramSize());
 
   WiFi.onEvent([](WiFiEvent_t ev, WiFiEventInfo_t info) {
-    if (ev == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
-      Serial.printf("dbg wifi disconnected reason=%d\n", (int)info.wifi_sta_disconnected.reason);
+    if (ev == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      // rate-limited: on a refusing AP this fires every second, and serial
+      // spam from the WiFi task steals time from playback (underruns)
+      static uint32_t lastLog = 0;
+      static int lastReason = -1;
+      int r = (int)info.wifi_sta_disconnected.reason;
+      if (r != lastReason || millis() - lastLog > 10000) {
+        lastLog = millis(); lastReason = r;
+        Serial.printf("dbg wifi disconnected reason=%d\n", r);
+      }
+    }
     else if (ev == ARDUINO_EVENT_WIFI_STA_GOT_IP)
       Serial.printf("dbg wifi ip=%s rssi=%d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
     else if (ev == ARDUINO_EVENT_WIFI_STA_CONNECTED)
@@ -352,7 +375,7 @@ void setup() {
   });
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.setAutoReconnect(true);
+  WiFi.setAutoReconnect(false);   // tryNet() retries, never during playback/listen
   WiFi.setTxPower(WIFI_POWER_19_5dBm);   // tiny PCB antenna: every dB counts
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   lastNetTry = millis();
