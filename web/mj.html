@@ -1,0 +1,61 @@
+<!doctype html><meta charset=utf-8><title>Mikkey pop-star face</title>
+<style>
+ body{background:#0b0b0f;color:#ddd;font:15px/1.4 -apple-system,Helvetica,sans-serif;margin:0;padding:24px 30px}
+ h1{font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#777;margin:0 0 18px}
+ .row{display:flex;gap:30px;align-items:flex-start}
+ .hat{width:270px;height:20px;background:#2a2a36;border-radius:10px 10px 0 0;font-size:10px;line-height:20px;color:#888;letter-spacing:.2em;text-align:center}
+ canvas{display:block;width:270px;height:480px;border-radius:0 0 14px 14px;box-shadow:0 0 0 8px #1a1a22;image-rendering:pixelated}
+ button{font:600 13px -apple-system,Helvetica,sans-serif;background:#2a2a36;color:#ddd;border:0;border-radius:8px;padding:6px 12px;cursor:pointer;margin:0 4px 6px 0}
+ button.p{background:#ff8a3d;color:#111}
+ .states{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:20px}
+ .states figure{margin:0;text-align:center;font-size:11px;color:#777}
+ .states canvas{width:135px;height:240px;box-shadow:0 0 0 4px #1a1a22;border-radius:8px;margin:0 auto 6px}
+</style>
+<h1>Mikkey · pop-star face · 1-bit pixel art, 45×80 grid ×3</h1>
+<div class=row>
+ <div><div class=hat>3D-PRINTED HAT</div><canvas id=lcd width=135 height=240></canvas></div>
+ <div>
+  <div><button class=p onclick="demo()">sing demo</button><button onclick="force('happy',2500)">happy</button><button onclick="force('sad',2500)">sad</button><button onclick="force('angry',2500)">angry</button><button onclick="force('closed',3000)">asleep</button><button onclick="lean=Date.now()+2200">the lean</button></div>
+  <p style="color:#888;font-size:12px;max-width:520px">White screen, black pixel lines. Hair locks hang from under the physical hat. Pupils glance, lids blink, brows carry the mood. Singing opens the mouth in three steps; long loud notes squint the eyes. After a song: the lean.</p>
+  <div class=states id=states></div>
+ </div>
+</div>
+<script>
+let A=null,lean=0,demoT=0,forced=null,forcedUntil=0;
+const lcd=document.getElementById('lcd').getContext('2d');
+function draw(ctx,s,c0,r0,flip,sc=3,col='#111'){const rs=s.split('\n');const w=Math.max(...rs.map(r=>r.length));ctx.fillStyle=col;rs.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==='#')ctx.fillRect((c0+(flip?w-1-x:x))*sc,(r0+y)*sc,sc,sc)})}
+function pupil(ctx,c,r,dx,dy,sc=3){ // iris 6x5 rounded, highlight top-left
+  ctx.fillStyle='#111';const cx=c+dx,cy=r+dy;
+  ctx.fillRect((cx-2)*sc,(cy-2)*sc,4*sc,sc);ctx.fillRect((cx-3)*sc,(cy-1)*sc,6*sc,3*sc);ctx.fillRect((cx-2)*sc,(cy+2)*sc,4*sc,sc);
+  ctx.fillStyle='#fff';ctx.fillRect((cx-2)*sc,(cy-1)*sc,sc,sc)}
+function face(ctx,eye,pdx,pdy,mouth,sc=3){
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,45*sc,80*sc);
+  draw(ctx,A.hair,0,0,false,sc);
+  if(eye==='open'||eye==='half'||eye==='sad'||eye==='angry'){pupil(ctx,A.pos.pupilL[0],A.pos.pupilL[1],pdx,pdy+(eye==='half'?2:0),sc);pupil(ctx,A.pos.pupilR[0],A.pos.pupilR[1],pdx,pdy+(eye==='half'?2:0),sc)}
+  if(eye==='half'){ctx.fillStyle='#fff';ctx.fillRect(0,(A.pos.eyeL[1]+0)*sc,45*sc,8*sc)}   // lid hides the top of the iris
+  draw(ctx,A.eye[eye],A.pos.eyeL[0],A.pos.eyeL[1],false,sc);
+  draw(ctx,A.eye[eye],A.pos.eyeR[0],A.pos.eyeR[1],true,sc);
+  draw(ctx,A.nose,A.pos.nose[0],A.pos.nose[1],false,sc);
+  draw(ctx,A.mouth[mouth],A.pos.mouth[0],A.pos.mouth[1],false,sc);
+}
+function demo(){demoT=Date.now()}
+function force(e,ms){forced=e;forcedUntil=Date.now()+ms}
+let nextBlink=0,blinkUntil=0,nextGlance=0,glanceUntil=0,gdx=0;
+function step(){
+  const now=Date.now(); let eye='open',m='closed',pdx=0,pdy=0;
+  if(now>=nextBlink){blinkUntil=now+130;nextBlink=now+2500+Math.random()*3000}
+  if(now>=nextGlance){gdx=Math.random()<.5?2:-2;glanceUntil=now+700;nextGlance=now+4000+Math.random()*5000}
+  if(now<blinkUntil)eye='closed'; if(now<glanceUntil)pdx=gdx;
+  if(forced&&now<forcedUntil){eye=forced;if(forced==='happy')m='smile'} else forced=null;
+  if(demoT){const t=(now-demoT)/1000; if(t>4)demoT=0; else{const v=Math.abs(Math.sin(t*6))*(0.6+0.4*Math.sin(t*1.3)); m=v<0.3?'closed':v<0.7?'half':'wide'; if(m==='wide'&&t>1.5)eye='happy';}}
+  if(lean>now){lcd.fillStyle='#fff';lcd.fillRect(0,0,135,240);draw(lcd,A.lean,A.pos.lean[0],A.pos.lean[1],false)} else face(lcd,eye,pdx,pdy,m);
+  requestAnimationFrame(step);
+}
+fetch('/mj_art.json').then(r=>r.json()).then(a=>{A=a;
+  const st=document.getElementById('states');
+  for(const [lab,e,m] of [['idle','open','closed'],['blink','closed','closed'],['half','half','closed'],['happy','happy','smile'],['sad','sad','closed'],['angry','angry','closed'],['sing half','open','half'],['sing wide','happy','wide']]){
+    const f=document.createElement('figure');const cv=document.createElement('canvas');cv.width=135;cv.height=240;f.appendChild(cv);f.appendChild(document.createTextNode(lab));st.appendChild(f);face(cv.getContext('2d'),e,0,0,m);
+  }
+  step();
+});
+</script>

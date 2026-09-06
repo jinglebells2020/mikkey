@@ -18,7 +18,10 @@
 // BIG_FACE: portrait big-head presentation for the 3D-printed hat (bigface.h).
 // FACE_ROTATION 0 puts the head at one short end of the stick, 2 at the other —
 // pick the end the hat sits on. 0 = classic landscape pop-star scenes (dragon.h).
-#define BIG_FACE 1
+// FACE_STYLE: 2 = pop-star 1-bit line art (mjface.h), 1 = cute grid face
+// (bigface.h), 0 = classic landscape pop-star scenes (dragon.h).
+#define FACE_STYLE 2
+#define BIG_FACE (FACE_STYLE != 0)
 #define FACE_ROTATION 0
 
 #include <M5Unified.h>
@@ -26,7 +29,9 @@
 #include <ESPmDNS.h>
 #include "wifi_config.h"
 #include "face_types.h"
-#if BIG_FACE
+#if FACE_STYLE == 2
+#include "mjface.h"
+#elif FACE_STYLE == 1
 #include "bigface.h"
 #else
 #include "dragon.h"

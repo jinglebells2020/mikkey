@@ -1029,6 +1029,23 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
 
+        elif self.path in ("/mj", "/mj_art.json"):
+            f = ROOT / "web" / ("mj.html" if self.path == "/mj" else "mj_art.json")
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8" if self.path == "/mj" else "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif self.path == "/faces":
+            body = (ROOT / "web" / "faces.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         elif self.path == "/sprites":
             self.send_json(load_sprites())
 

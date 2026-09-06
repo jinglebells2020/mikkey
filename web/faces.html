@@ -1,0 +1,111 @@
+<!doctype html><meta charset=utf-8><title>Mikkey face options</title>
+<style>
+ body{background:#0b0b0f;color:#ddd;font:15px/1.4 -apple-system,Helvetica,sans-serif;margin:0;padding:24px 30px}
+ h1{font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#777;margin:0 0 18px}
+ .row{display:flex;gap:34px;flex-wrap:wrap}
+ .opt{text-align:center}
+ .hat{width:270px;height:20px;background:#2a2a36;border-radius:10px 10px 0 0;font-size:10px;line-height:20px;color:#888;letter-spacing:.2em;margin:0 auto}
+ canvas{display:block;width:270px;height:480px;border-radius:0 0 14px 14px;box-shadow:0 0 0 8px #1a1a22;margin:0 auto 14px;image-rendering:auto}
+ h2{font-size:17px;margin:6px 0 2px;color:#fff}
+ p{font-size:12px;color:#888;margin:0 0 8px;max-width:270px}
+ button{font:600 13px -apple-system,Helvetica,sans-serif;background:#2a2a36;color:#ddd;border:0;border-radius:8px;padding:6px 12px;cursor:pointer;margin:0 3px}
+ button.p{background:#ff8a3d;color:#111}
+</style>
+<h1>Mikkey · face options · portrait 135×240, hat on top</h1>
+<div class=row id=row></div>
+<script>
+// Each style draws the full screen given: eyes (open|blink|half|closed|happy|squint|sad), pdx (-1..1), mouth (0 closed,1 half,2 wide)
+const W=135,H=240;
+function rr(c,x,y,w,h,r,col){c.fillStyle=col;c.beginPath();c.roundRect(x,y,w,h,r);c.fill()}
+function circ(c,x,y,r,col){c.fillStyle=col;c.beginPath();c.arc(x,y,r,0,7);c.fill()}
+function ell(c,x,y,rx,ry,col){c.fillStyle=col;c.beginPath();c.ellipse(x,y,rx,ry,0,0,7);c.fill()}
+function arc(c,x,y,r,a0,a1,wdt,col){c.strokeStyle=col;c.lineWidth=wdt;c.lineCap='round';c.beginPath();c.arc(x,y,r,a0,a1);c.stroke()}
+
+const STYLES={
+ mochi:{name:'Mochi',blurb:'Soft off-white blob. Round bead eyes with a shine, ω mouth, pink cheeks. Reads as a plush toy.',
+  draw(c,e,pdx,m){
+   c.fillStyle='#000';c.fillRect(0,0,W,H); rr(c,0,0,W,H,44,'#f4efe6');
+   for(const x of [42,93]){
+     if(e==='blink'||e==='closed')rr(c,x-11,92,22,5,3,'#222');
+     else if(e==='happy')arc(c,x,98,10,Math.PI,2*Math.PI,4,'#222');
+     else if(e==='half'){circ(c,x+pdx*3,96,9,'#222');rr(c,x-12,82,24,10,2,'#f4efe6')}
+     else if(e==='sad'){circ(c,x+pdx*3,97,8,'#222');}
+     else{circ(c,x+pdx*3,96,9,'#222');circ(c,x+pdx*3-3,92,3,'#fff')}
+   }
+   circ(c,20,120,7,'#ffb3c7');circ(c,115,120,7,'#ffb3c7');
+   if(m===0){arc(c,60,132,6,0.1,Math.PI-0.1,3,'#222');arc(c,75,132,6,0.1,Math.PI-0.1,3,'#222')}   // ω
+   else if(m===1){circ(c,67,138,8,'#222');}
+   else{rr(c,45,124,45,30,14,'#222');rr(c,52,142,31,12,8,'#ff6e8a')}
+  }},
+ bot:{name:'Bot',blurb:'Dark screen, glowing cyan LED eyes and a light-bar mouth. Pure AI companion, nothing human.',
+  draw(c,e,pdx,m){
+   c.fillStyle='#07071a';c.fillRect(0,0,W,H);
+   const C='#37e6ff';
+   for(const x of [42,93]){
+     if(e==='blink'||e==='closed')rr(c,x-18,94,36,6,3,C);
+     else if(e==='happy')arc(c,x,102,15,Math.PI,2*Math.PI,7,C);
+     else if(e==='half')rr(c,x-18+pdx*3,92,36,14,7,C);
+     else if(e==='sad'){rr(c,x-18,86,36,24,10,C);c.save();c.translate(x,88);c.rotate((x<67?-1:1)*0.35);rr(c,-24,-14,48,12,2,'#07071a');c.restore()}
+     else rr(c,x-18+pdx*4,84,36,26,10,C);
+   }
+   circ(c,14,128,3,C);circ(c,121,128,3,C);
+   if(m===0)rr(c,44,142,47,7,4,C);
+   else if(m===1)rr(c,40,136,55,20,10,C);
+   else{rr(c,30,128,75,40,18,C);rr(c,42,140,51,20,9,'#07071a')}
+  }},
+ pip:{name:'Pip',blurb:'Mint pet with big white eyes, dark pupils and a shine, cheeky grin. Pupils follow the glance. Like a tamagotchi mascot.',
+  draw(c,e,pdx,m){
+   c.fillStyle='#000';c.fillRect(0,0,W,H); rr(c,0,0,W,H,50,'#7ee8c8');
+   for(const x of [41,94]){
+     if(e==='blink'||e==='closed'){arc(c,x,98,14,0.15,Math.PI-0.15,4,'#134')}
+     else if(e==='happy')arc(c,x,104,14,Math.PI,2*Math.PI,5,'#134');
+     else{circ(c,x,96,17,'#fff');
+       if(e==='half')rr(c,x-18,78,36,16,4,'#7ee8c8');
+       circ(c,x+pdx*5,e==='sad'?100:97,9,'#134');circ(c,x+pdx*5-3,93,3,'#fff');
+       if(e==='squint'){rr(c,x-18,78,36,12,4,'#7ee8c8');rr(c,x-18,106,36,10,4,'#7ee8c8')}}
+   }
+   circ(c,20,124,7,'#ff9fb8');circ(c,115,124,7,'#ff9fb8');
+   if(m===0)arc(c,67,128,13,0.2,Math.PI-0.2,4,'#134');
+   else if(m===1){circ(c,67,140,10,'#134');circ(c,67,145,5,'#ff6e8a')}
+   else{ell(c,67,144,30,20,'#134');rr(c,44,128,46,9,3,'#fff');ell(c,67,156,14,8,'#ff6e8a')}
+  }},
+ ghost:{name:'Peach',blurb:'Pastel lavender ghost-mochi. Tall bead eyes, tiny cat mouth, sparkle cheeks. Minimal and very soft.',
+  draw(c,e,pdx,m){
+   c.fillStyle='#000';c.fillRect(0,0,W,H); rr(c,0,0,W,H,60,'#cdb7f5');
+   for(const x of [46,89]){
+     if(e==='blink'||e==='closed')rr(c,x-8,96,16,5,3,'#2a2340');
+     else if(e==='happy')arc(c,x,100,8,Math.PI,2*Math.PI,4,'#2a2340');
+     else if(e==='half'){ell(c,x+pdx*2,98,6,10,'#2a2340');rr(c,x-9,84,18,10,2,'#cdb7f5')}
+     else ell(c,x+pdx*2,96,6,e==='sad'?8:11,'#2a2340');
+   }
+   for(const [x,y] of [[16,118],[119,118]]){c.fillStyle='#fff';c.beginPath();c.moveTo(x,y-6);c.lineTo(x+2,y-2);c.lineTo(x+6,y);c.lineTo(x+2,y+2);c.lineTo(x,y+6);c.lineTo(x-2,y+2);c.lineTo(x-6,y);c.lineTo(x-2,y-2);c.fill()}
+   if(m===0){arc(c,62,124,5,0.1,Math.PI-0.1,3,'#2a2340');arc(c,73,124,5,0.1,Math.PI-0.1,3,'#2a2340')}
+   else if(m===1)circ(c,67,131,7,'#2a2340');
+   else{rr(c,48,118,38,26,12,'#2a2340');rr(c,55,134,24,9,6,'#ff8fa8')}
+  }},
+};
+const row=document.getElementById('row');
+for(const [key,st] of Object.entries(STYLES)){
+  const d=document.createElement('div');d.className='opt';
+  d.innerHTML=`<div class=hat>3D-PRINTED HAT</div><canvas width=135 height=240></canvas><h2>${st.name}</h2><p>${st.blurb}</p>
+   <button class=p onclick="demo('${key}')">sing demo</button><button onclick="mood('${key}','happy')">happy</button><button onclick="mood('${key}','sad')">sad</button><button onclick="mood('${key}','closed')">asleep</button>`;
+  row.appendChild(d);
+  st.ctx=d.querySelector('canvas').getContext('2d'); st.nextBlink=0; st.blinkUntil=0; st.nextGlance=0; st.glanceUntil=0; st.pdx=0; st.force=null; st.forceUntil=0; st.demo=null;
+}
+function demo(k){const st=STYLES[k];st.demo={t0:Date.now()}}
+function mood(k,e){const st=STYLES[k];st.force=e;st.forceUntil=Date.now()+2500}
+function step(){
+  const now=Date.now();
+  for(const st of Object.values(STYLES)){
+    let e='open',m=0;
+    if(now>=st.nextBlink){st.blinkUntil=now+120;st.nextBlink=now+2500+Math.random()*3000}
+    if(now>=st.nextGlance){st.pdx=Math.random()<.5?1:-1;st.glanceUntil=now+600;st.nextGlance=now+4000+Math.random()*5000}
+    if(now<st.blinkUntil)e='blink';
+    if(st.force&&now<st.forceUntil)e=st.force; else st.force=null;
+    if(st.demo){const t=(now-st.demo.t0)/1000; if(t>4)st.demo=null; else{const v=Math.abs(Math.sin(t*6))*(0.6+0.4*Math.sin(t*1.3)); m=v<0.3?0:v<0.7?1:2; if(t>2.4&&t<3.2)e='happy';}}
+    st.draw(st.ctx,e,now<st.glanceUntil?st.pdx:0,m);
+  }
+  requestAnimationFrame(step);
+}
+step();
+</script>

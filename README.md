@@ -55,10 +55,12 @@ Beat by beat:
   so pin `kk` on `/studio` before that cut (then back to `auto`). The reply is
   sung in the speaker's language; the bracket tag is forced to English.
   Scripted `ru-hello` / `kk-hello` / `zh-hello` exist as fallbacks.
-- **BIG_FACE** (firmware, default): portrait screen, bare head flush with the
-  hat end so the 3D-printed hat sits on his head in every state; body below.
-  `FACE_ROTATION` 0/2 picks which short end is "up". Set `BIG_FACE 0` for the
-  old landscape pop-star scenes.
+- **FACE_STYLE** (firmware): 2 (default) = pop-star 1-bit line art, black on
+  white, portrait, hair locks under the physical hat, eyes/brows/mouth carry
+  every state, "the lean" silhouette after a song. Art is ASCII in
+  `tools/mj_art.py` (run it to regenerate `mj_art.h` + the `/mj` preview).
+  1 = cute full-screen grid face (bigface.h). 0 = classic landscape scenes.
+  `FACE_ROTATION` 0/2 picks which short end is "up".
 - **SHOOT_MODE** (firmware): handling never makes him grumpy; naps still happen.
 
 Failure behavior (all sung/visible, never silent): brain or TTS failure ->
