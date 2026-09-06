@@ -19,7 +19,7 @@
  label{color:#777;font-size:12px}
 </style>
 <div>
- <h1>Mikkey · screen (135×240 portrait, ×2.5) · hat sits on the top edge</h1>
+ <h1>Mikkey · screen (135×240 portrait, ×2.5) · full-screen face, hat on the top edge</h1>
  <div style="display:flex;gap:26px;align-items:flex-start">
   <div>
    <div style="width:338px;height:22px;background:#2a2a36;border-radius:10px 10px 0 0;text-align:center;font-size:11px;line-height:22px;color:#888;letter-spacing:.2em">3D-PRINTED HAT</div>
@@ -47,41 +47,42 @@
 const $=id=>document.getElementById(id);
 let SH=null, PAL=null, playing=null;   // playing = {env,fps,every,jaw,wideRun,last,cur}
 const lcd=$('lcd').getContext('2d');
-// ---- same layout constants as firmware/mikkey/bigface.h ----
-const SC=9, HEAD={r0:2,r1:15,c0:5,x:4,y:0}, BODY={r0:9,r1:17,c0:7,x:18,y:126};
-const SKIN='#f6d2a4', DARK='#202020', WHITE='#ffffff';
-function drawRows(ctx,s,x,y,sc,r0,r1,c0){
-  for(let cy=r0;cy<=r1&&cy<s.h;cy++)for(let cx=0;cx<s.w;cx++){
-    const v=s.px[cy*s.w+cx]; if(!v)continue;
-    ctx.fillStyle=PAL[v]; ctx.fillRect(x+(cx-c0)*sc,y+(cy-r0)*sc,sc,sc);
-  }
+// ---- same geometry as firmware/mikkey/bigface.h: 9x16 cells of 15px ----
+const SC=15, EYE_ROW=3, EYE_L=1, EYE_R=5, NOSE_ROW=7, MOUTH_ROW=9;
+const SKIN='#f6d2a4', DARK='#202020', WHITE='#ffffff', MOUTH='#ac0000', BLUSH='#ff66b0';
+const cell=(c,r,col)=>{lcd.fillStyle=col;lcd.fillRect(c*SC,r*SC,SC,SC)};
+function drawSpr(ctx,s,x,y,sc){for(let cy=0;cy<s.h;cy++)for(let cx=0;cx<s.w;cx++){const v=s.px[cy*s.w+cx];if(!v)continue;ctx.fillStyle=PAL[v];ctx.fillRect(x+cx*sc,y+cy*sc,sc,sc)}}
+function drawSkin(bg){
+  lcd.fillStyle=SKIN;lcd.fillRect(0,0,135,240);
+  for(const [c,r] of [[0,0],[8,0],[0,14],[8,14],[0,15],[1,15],[7,15],[8,15]])cell(c,r,bg);
+  cell(4,NOSE_ROW,DARK);cell(0,NOSE_ROW,BLUSH);cell(8,NOSE_ROW,BLUSH);
 }
-function drawSpr(ctx,s,x,y,sc){drawRows(ctx,s,x,y,sc,0,s.h-1,0)}
-function drawHead(s){drawRows(lcd,s,HEAD.x,HEAD.y,SC,HEAD.r0,HEAD.r1,HEAD.c0)}
-function drawBody(alt){drawRows(lcd,alt?SH.IDLE_B:SH.IDLE_A,BODY.x,BODY.y,SC,BODY.r0,BODY.r1,BODY.c0)}
-function drawEyes(style,pdx){   // 0 open, 1 blink, 2 half
-  for(const col of [7,14]){
-    const x0=HEAD.x+(col-HEAD.c0)*SC, y0=HEAD.y+(4-HEAD.r0)*SC;
-    for(let r=0;r<3;r++)for(let k=0;k<3;k++){
-      let c=WHITE;
-      if(style===0)c=(r===1&&k===1+pdx)?DARK:WHITE;
-      else if(style===1)c=(r===1)?DARK:SKIN;
-      else c=(r===0)?SKIN:(r===1&&k===1)?DARK:WHITE;
-      lcd.fillStyle=c;lcd.fillRect(x0+k*SC,y0+r*SC,SC,SC);
-    }
+function drawMouth(style){   // 0 closed, 1 half, 2 wide
+  for(let r=MOUTH_ROW;r<MOUTH_ROW+5;r++)for(let k=0;k<9;k++)cell(k,r,SKIN);
+  if(style===0){for(let k=2;k<=6;k++)cell(k,MOUTH_ROW+1,DARK)}
+  else if(style===1){for(let k=2;k<=6;k++){cell(k,MOUTH_ROW+1,DARK);cell(k,MOUTH_ROW+3,DARK);cell(k,MOUTH_ROW+2,MOUTH)}cell(1,MOUTH_ROW+2,DARK);cell(7,MOUTH_ROW+2,DARK)}
+  else{for(let k=1;k<=7;k++){cell(k,MOUTH_ROW,DARK);cell(k,MOUTH_ROW+4,DARK);cell(k,MOUTH_ROW+1,WHITE);cell(k,MOUTH_ROW+2,MOUTH);cell(k,MOUTH_ROW+3,MOUTH)}for(let r=1;r<=3;r++){cell(0,MOUTH_ROW+r,DARK);cell(8,MOUTH_ROW+r,DARK)}}
+}
+function drawEyes(style,pdx){   // 0 open, 1 blink, 2 half, 3 happy
+  for(const col of [EYE_L,EYE_R]) for(let r=0;r<3;r++)for(let k=0;k<3;k++){
+    let c=WHITE;
+    if(style===0)c=(r===1&&k===1+pdx)?DARK:WHITE;
+    else if(style===1)c=(r===1)?DARK:SKIN;
+    else if(style===2)c=(r===0)?SKIN:(r===1&&k===1)?DARK:WHITE;
+    else c=((r===0&&k===1)||(r===1&&k!==1))?DARK:SKIN;
+    cell(col+k,EYE_ROW+r,c);
   }
 }
 let nextBlink=0,blinkUntil=0,nextGlance=0,glanceUntil=0,glanceDx=0;
-function singSprite(){
-  const p=playing; if(!p)return SH.SING_CLOSED;
-  const j=p.jaw;
-  if(j<64){p.wideRun=0;return SH.SING_CLOSED}
-  if(j<160){p.wideRun=0;return SH.SING_HALF}
-  return SH.SING_WIDE_SQUINT&&p.wideRun>=8?SH.SING_WIDE_SQUINT:SH.SING_WIDE;
+function mouthStyle(){
+  const p=playing; if(!p)return 0;
+  if(p.jaw<64){p.wideRun=0;return 0}
+  if(p.jaw<160){p.wideRun=0;return 1}
+  return 2;
 }
 function step(){
   const p=playing, au=$('au'), now=Date.now();
-  lcd.fillStyle='#000';lcd.fillRect(0,0,135,240);
+  drawSkin('#000');
   if(p){
     const f=Math.floor(au.currentTime*p.fps);
     while(p.cur<Math.min(f,p.env.length-1)){           // advance jaw frame by frame, stateful like the stick
@@ -89,18 +90,16 @@ function step(){
       if(p.cur%p.every)continue;
       const t=p.env[p.cur];
       if($('squint').checked){ if(t>p.jaw)p.jaw+=(t-p.jaw)>>1; else p.jaw-=(p.jaw-t)>>2; } else p.jaw=t;
-      if(p.jaw>=160)p.wideRun=Math.min(p.wideRun+1,30);
+      if(p.jaw>=160)p.wideRun=Math.min(p.wideRun+1,30); else p.wideRun=0;
     }
-    for(let i=0;i<4;i++){lcd.fillStyle=Math.random()<.5?'#fff':'#ff88ff';lcd.fillRect(Math.random()*131|0,Math.random()*236|0,3,3)}
-    drawHead(singSprite()); drawBody(false);
+    const m=mouthStyle();
+    drawEyes(m===2&&p.wideRun>=8?3:0,0); drawMouth(m);
     $('now').textContent=`${au.currentTime.toFixed(2)}s · env ${p.env[Math.min(p.cur,p.env.length-1)]} · jaw ${p.jaw}`;
     if(au.ended||au.paused&&au.currentTime>=au.duration-.01){playing=null;$('pv').textContent='idle';$('now').textContent=''}
   }else{
     if(now>=nextBlink){blinkUntil=now+120;nextBlink=now+2500+Math.random()*3000}
     if(now>=nextGlance){glanceDx=Math.random()<.5?1:-1;glanceUntil=now+500+Math.random()*500;nextGlance=now+4000+Math.random()*5000}
-    drawHead(SH.SING_CLOSED);
-    drawEyes(now<blinkUntil?1:0, now<glanceUntil?glanceDx:0);
-    drawBody((now/500|0)&1);
+    drawEyes(now<blinkUntil?1:0, now<glanceUntil?glanceDx:0); drawMouth(0);
   }
   lcd.fillStyle=window.devUp?'#33ccff':'#7b7b7b';lcd.beginPath();lcd.arc(8,232,4,0,7);lcd.fill();
   requestAnimationFrame(step);
