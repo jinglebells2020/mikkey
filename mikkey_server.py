@@ -884,9 +884,12 @@ def list_clips() -> list:
             continue
         side = next((p for p in (OUT / f"{lid}.txt", CACHE / f"{lid}.txt") if p.exists()), None)
         text = side.read_text() if side else texts.get(lid, "")
+        if lid.startswith("mic-"):
+            text = "(mic recording — what the stick heard)"
         clips[lid] = {"id": lid, "kind": f.suffix[1:], "text": text,
                       "mtime": f.stat().st_mtime,
-                      "device": (CACHE / f"{lid}.pcm").exists() or (OUT / f"{lid}.txt").exists()}
+                      "device": not lid.startswith("mic-") and
+                                ((CACHE / f"{lid}.pcm").exists() or (OUT / f"{lid}.txt").exists())}
     return sorted(clips.values(), key=lambda c: -c["mtime"])
 
 

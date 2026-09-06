@@ -1,6 +1,6 @@
 <!doctype html><meta charset=utf-8><title>Mikkey preview</title>
 <style>
- body{background:#0b0b0f;color:#ddd;font:15px/1.4 -apple-system,Helvetica,sans-serif;margin:0;padding:22px 28px;display:grid;grid-template-columns:740px 1fr;gap:28px}
+ body{background:#0b0b0f;color:#ddd;font:15px/1.4 -apple-system,Helvetica,sans-serif;margin:0;padding:22px 28px;display:grid;grid-template-columns:640px 1fr;gap:28px}
  h1{font-size:13px;letter-spacing:.2em;text-transform:uppercase;color:#777;margin:0 0 10px}
  canvas{image-rendering:pixelated;background:#000;border-radius:14px;display:block}
  #lcd{box-shadow:0 0 0 10px #1a1a22,0 0 40px #000}
@@ -19,13 +19,20 @@
  label{color:#777;font-size:12px}
 </style>
 <div>
- <h1>Mikkey · screen (240×135, ×3)</h1>
- <canvas id=lcd width=240 height=135 style="width:720px;height:405px"></canvas>
- <div class=bar>
-  <span>preview: <b id=pv>idle</b></span>
-  <span>device: <b id=dev>?</b></span>
-  <span id=now style="flex:1;color:#ccc"></span>
-  <label><input type=checkbox id=squint checked> jaw smoothing like firmware</label>
+ <h1>Mikkey · screen (135×240 portrait, ×2.5) · hat sits on the top edge</h1>
+ <div style="display:flex;gap:26px;align-items:flex-start">
+  <div>
+   <div style="width:338px;height:22px;background:#2a2a36;border-radius:10px 10px 0 0;text-align:center;font-size:11px;line-height:22px;color:#888;letter-spacing:.2em">3D-PRINTED HAT</div>
+   <canvas id=lcd width=135 height=240 style="width:338px;height:600px;border-radius:0 0 14px 14px"></canvas>
+  </div>
+  <div style="flex:1">
+   <div class=bar style="flex-direction:column;align-items:flex-start;gap:6px;margin:0">
+    <span>preview: <b id=pv>idle</b></span>
+    <span>device: <b id=dev>?</b></span>
+    <span id=now style="color:#ccc"></span>
+    <label><input type=checkbox id=squint checked> jaw smoothing like firmware</label>
+   </div>
+  </div>
  </div>
  <h1>Sprite sheet (dragon_art.h)</h1>
  <div id=gal></div>
@@ -40,12 +47,31 @@
 const $=id=>document.getElementById(id);
 let SH=null, PAL=null, playing=null;   // playing = {env,fps,every,jaw,wideRun,last,cur}
 const lcd=$('lcd').getContext('2d');
-function drawSpr(ctx,s,x,y,sc,flip){
-  for(let cy=0;cy<s.h;cy++)for(let cx=0;cx<s.w;cx++){
-    const v=s.px[cy*s.w+(flip?s.w-1-cx:cx)]; if(!v)continue;
-    ctx.fillStyle=PAL[v]; ctx.fillRect(x+cx*sc,y+cy*sc,sc,sc);
+// ---- same layout constants as firmware/mikkey/bigface.h ----
+const SC=9, HEAD={r0:2,r1:15,c0:5,x:4,y:0}, BODY={r0:9,r1:17,c0:7,x:18,y:126};
+const SKIN='#f6d2a4', DARK='#202020', WHITE='#ffffff';
+function drawRows(ctx,s,x,y,sc,r0,r1,c0){
+  for(let cy=r0;cy<=r1&&cy<s.h;cy++)for(let cx=0;cx<s.w;cx++){
+    const v=s.px[cy*s.w+cx]; if(!v)continue;
+    ctx.fillStyle=PAL[v]; ctx.fillRect(x+(cx-c0)*sc,y+(cy-r0)*sc,sc,sc);
   }
 }
+function drawSpr(ctx,s,x,y,sc){drawRows(ctx,s,x,y,sc,0,s.h-1,0)}
+function drawHead(s){drawRows(lcd,s,HEAD.x,HEAD.y,SC,HEAD.r0,HEAD.r1,HEAD.c0)}
+function drawBody(alt){drawRows(lcd,alt?SH.IDLE_B:SH.IDLE_A,BODY.x,BODY.y,SC,BODY.r0,BODY.r1,BODY.c0)}
+function drawEyes(style,pdx){   // 0 open, 1 blink, 2 half
+  for(const col of [7,14]){
+    const x0=HEAD.x+(col-HEAD.c0)*SC, y0=HEAD.y+(4-HEAD.r0)*SC;
+    for(let r=0;r<3;r++)for(let k=0;k<3;k++){
+      let c=WHITE;
+      if(style===0)c=(r===1&&k===1+pdx)?DARK:WHITE;
+      else if(style===1)c=(r===1)?DARK:SKIN;
+      else c=(r===0)?SKIN:(r===1&&k===1)?DARK:WHITE;
+      lcd.fillStyle=c;lcd.fillRect(x0+k*SC,y0+r*SC,SC,SC);
+    }
+  }
+}
+let nextBlink=0,blinkUntil=0,nextGlance=0,glanceUntil=0,glanceDx=0;
 function singSprite(){
   const p=playing; if(!p)return SH.SING_CLOSED;
   const j=p.jaw;
@@ -54,7 +80,8 @@ function singSprite(){
   return SH.SING_WIDE_SQUINT&&p.wideRun>=8?SH.SING_WIDE_SQUINT:SH.SING_WIDE;
 }
 function step(){
-  const p=playing, au=$('au');
+  const p=playing, au=$('au'), now=Date.now();
+  lcd.fillStyle='#000';lcd.fillRect(0,0,135,240);
   if(p){
     const f=Math.floor(au.currentTime*p.fps);
     while(p.cur<Math.min(f,p.env.length-1)){           // advance jaw frame by frame, stateful like the stick
@@ -62,22 +89,20 @@ function step(){
       if(p.cur%p.every)continue;
       const t=p.env[p.cur];
       if($('squint').checked){ if(t>p.jaw)p.jaw+=(t-p.jaw)>>1; else p.jaw-=(p.jaw-t)>>2; } else p.jaw=t;
-      const s=singSprite(); if(s!==p.last){p.last=s;p.wideRunSeen=p.wideRun}
       if(p.jaw>=160)p.wideRun=Math.min(p.wideRun+1,30);
     }
-    lcd.fillStyle='#000';lcd.fillRect(0,0,240,135);
-    for(let i=0;i<3;i++){lcd.fillStyle=Math.random()<.5?'#fff':'#ff88ff';lcd.fillRect(Math.random()*234|0,Math.random()*129|0,3,3)}
-    drawSpr(lcd,singSprite(),60,20,6,false);
+    for(let i=0;i<4;i++){lcd.fillStyle=Math.random()<.5?'#fff':'#ff88ff';lcd.fillRect(Math.random()*131|0,Math.random()*236|0,3,3)}
+    drawHead(singSprite()); drawBody(false);
     $('now').textContent=`${au.currentTime.toFixed(2)}s · env ${p.env[Math.min(p.cur,p.env.length-1)]} · jaw ${p.jaw}`;
     if(au.ended||au.paused&&au.currentTime>=au.duration-.01){playing=null;$('pv').textContent='idle';$('now').textContent=''}
   }else{
-    lcd.fillStyle='#000';lcd.fillRect(0,0,240,135);
-    lcd.fillStyle='#632c';lcd.beginPath();lcd.roundRect(0,81,62,54,14);lcd.fill();
-    lcd.fillStyle='#212121';lcd.beginPath();lcd.roundRect(10,95,42,40,10);lcd.fill();
-    const s=(Date.now()/500|0)&1?SH.IDLE_A:SH.IDLE_B;
-    drawSpr(lcd,s,(240-s.w*5)/2,135-s.h*5,5,false);
+    if(now>=nextBlink){blinkUntil=now+120;nextBlink=now+2500+Math.random()*3000}
+    if(now>=nextGlance){glanceDx=Math.random()<.5?1:-1;glanceUntil=now+500+Math.random()*500;nextGlance=now+4000+Math.random()*5000}
+    drawHead(SH.SING_CLOSED);
+    drawEyes(now<blinkUntil?1:0, now<glanceUntil?glanceDx:0);
+    drawBody((now/500|0)&1);
   }
-  lcd.fillStyle=window.devUp?'#33ccff':'#7b7b7b';lcd.beginPath();lcd.arc(8,10,4,0,7);lcd.fill();
+  lcd.fillStyle=window.devUp?'#33ccff':'#7b7b7b';lcd.beginPath();lcd.arc(8,232,4,0,7);lcd.fill();
   requestAnimationFrame(step);
 }
 async function play(id){
@@ -106,7 +131,7 @@ async function refresh(){
     const w=Math.max(...frames.map(f=>SH[f].w)),h=Math.max(...frames.map(f=>SH[f].h));
     cv.width=w*3;cv.height=h*3;cv.style.width=(w*3)+'px';fig.appendChild(cv);fig.appendChild(document.createTextNode(name.toLowerCase()));$('gal').appendChild(fig);
     const ctx=cv.getContext('2d');let i=0;
-    setInterval(()=>{ctx.clearRect(0,0,cv.width,cv.height);drawSpr(ctx,SH[frames[i++%frames.length]],0,0,3,false)},400);
+    setInterval(()=>{ctx.clearRect(0,0,cv.width,cv.height);drawSpr(ctx,SH[frames[i++%frames.length]],0,0,3)},400);
   }
   refresh();setInterval(refresh,2000);step();
 })();

@@ -15,13 +15,22 @@
 // grumpy/fainted on camera, and picking him up while he naps plays the hat
 // wake-up ritual (the hook shot) instead of a startle.
 #define SHOOT_MODE 1
+// BIG_FACE: portrait big-head presentation for the 3D-printed hat (bigface.h).
+// FACE_ROTATION 0 puts the head at one short end of the stick, 2 at the other —
+// pick the end the hat sits on. 0 = classic landscape pop-star scenes (dragon.h).
+#define BIG_FACE 1
+#define FACE_ROTATION 0
 
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include "wifi_config.h"
 #include "face_types.h"
+#if BIG_FACE
+#include "bigface.h"
+#else
 #include "dragon.h"
+#endif
 
 // ---------------------------------------------------------------- link ----
 static WiFiClient tcp;
@@ -345,7 +354,11 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
   M5.Speaker.setVolume(255);
+#if BIG_FACE
+  M5.Display.setRotation(FACE_ROTATION);
+#else
   M5.Display.setRotation(1);
+#endif
   M5.Display.setBrightness(200);
 
   clipBuf = (int16_t *)ps_malloc(PCM_MAX);

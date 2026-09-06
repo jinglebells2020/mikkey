@@ -55,6 +55,10 @@ Beat by beat:
   so pin `kk` on `/studio` before that cut (then back to `auto`). The reply is
   sung in the speaker's language; the bracket tag is forced to English.
   Scripted `ru-hello` / `kk-hello` / `zh-hello` exist as fallbacks.
+- **BIG_FACE** (firmware, default): portrait screen, bare head flush with the
+  hat end so the 3D-printed hat sits on his head in every state; body below.
+  `FACE_ROTATION` 0/2 picks which short end is "up". Set `BIG_FACE 0` for the
+  old landscape pop-star scenes.
 - **SHOOT_MODE** (firmware): handling never makes him grumpy; naps still happen.
 
 Failure behavior (all sung/visible, never silent): brain or TTS failure ->
@@ -69,7 +73,8 @@ handshake timeout) and its IP once joined.
 
 - `mikkey_server.py` — the whole host: HTTP (`/say`, `/trigger`), USB+TCP
   links, whisper+LLM, Fish streaming, quick replies, fillers, error clips.
-- `firmware/mikkey/` — StickS3 firmware (face state machine, audio, mic, links).
+- `firmware/mikkey/` — StickS3 firmware (bigface.h portrait face for the hat,
+  dragon.h legacy landscape scenes, audio, mic, links).
   Flash: `arduino-cli compile --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB" firmware/mikkey && arduino-cli upload ... -p /dev/cu.usbmodem*`
   Config: copy `firmware/mikkey/wifi_config.h.example` -> `wifi_config.h`.
 - `script.yaml` — the reel's lines, in shoot order (pre-generated at server start;
