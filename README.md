@@ -26,6 +26,7 @@ gpt-oss-120b), and streams the sung answer back with a mouth-sync envelope.
 ```
 ./run.sh                       # preflight + server with auto-restart + timestamps
 open http://localhost:8090/studio   # the on-screen tool for the emotion-tag beat
+.venv/bin/python mikkey_type.py     # type a line in the terminal, he sings it
 ```
 
 1. Network: the stick joins the SSID in `firmware/mikkey/wifi_config.h`
@@ -35,7 +36,9 @@ open http://localhost:8090/studio   # the on-screen tool for the emotion-tag bea
 2. Power the stick (battery lasts <1h — USB power bank for long takes).
 3. Blue dot top-left = TCP link up. Grey = USB fallback.
 4. **Tap** = next `script.yaml` line, in shoot order. **Hold** = push-to-talk.
-   `/studio` can sing any line directly or move the cursor (shoot out of order).
+   `/studio` can sing any line directly or move the cursor (shoot out of order),
+   and `mikkey_type.py` does the same from the terminal (`/ls`, `/l <n|id>`,
+   `/next`, `/goto`) with anything else you type sung under the standing `/dir`.
 5. Masters: every line Mikkey sang is in `out/` (mp3 for scripted, wav for live
    and canned) and `out/takes.log` says what played when, with the file id.
 
@@ -85,6 +88,9 @@ handshake timeout) and its IP once joined.
 - `sing_test.py` / `audio_pipeline.py` — TTS test harness / offline PCM+envelope
   tools (`preview <id>` shows an ASCII mouth synced to laptop playback).
 - `mikkey_talk.py` — laptop-mic push-to-talk (fallback if the stick mic fails).
+- `mikkey_type.py` — terminal REPL: type a line, the stick sings it. `/dir` sets
+  the standing direction, a typed `[tag]` overrides it for one line, and the
+  script lines are reachable by number or id.
 
 Secrets: `.env` (FISH_API_KEY, OPENROUTER_API_KEY[, ANTHROPIC_API_KEY]) and
 `firmware/mikkey/wifi_config.h` — both gitignored, never committed.
