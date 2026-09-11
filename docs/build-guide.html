@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mikkey — Build Guide</title>
+<style>
+  @page { size: A4; margin: 17mm 16mm 16mm 16mm; }
+  * { box-sizing: border-box; }
+  :root {
+    --ink: #14110f;
+    --mid: #55504b;
+    --faint: #8b847d;
+    --rule: #ddd6cd;
+    --accent: #c2410c;
+    --wash: #faf7f2;
+    --code-bg: #f4f1ec;
+  }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0; color: var(--ink); background: #fff;
+    font: 9.8pt/1.55 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .display { font-family: Georgia, "Times New Roman", serif; font-weight: 600; }
+
+  /* ---- cover ---- */
+  .cover { padding-bottom: 6mm; border-bottom: 2px solid var(--ink); margin-bottom: 7mm; }
+  .kicker { font: 600 7.6pt/1 "Helvetica Neue", Helvetica, sans-serif;
+            letter-spacing: .18em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-size: 30pt; line-height: 1.02; margin: 4mm 0 3mm; letter-spacing: -.01em; }
+  .standfirst { font: italic 12pt/1.45 Georgia, serif; color: var(--mid); max-width: 118mm; margin: 0; }
+
+  h2 { font-size: 15pt; margin: 9mm 0 3mm; padding-bottom: 1.6mm;
+       border-bottom: 1px solid var(--rule); }
+  h2 .num { color: var(--accent); font-size: 11pt; margin-right: 2.5mm; vertical-align: 1.5pt; }
+  h3 { font-size: 10.6pt; margin: 5mm 0 1.5mm; }
+  p { margin: 0 0 2.6mm; }
+  a { color: var(--accent); text-decoration: none; }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+  ul { margin: 0 0 3mm; padding-left: 4.6mm; }
+  li { margin-bottom: 1.2mm; }
+
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .88em;
+         background: var(--code-bg); padding: .5mm 1.2mm; border-radius: 1.5px; }
+  pre { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.2pt; line-height: 1.5;
+        background: var(--code-bg); border-left: 2.5px solid var(--accent);
+        padding: 2.6mm 3.4mm; margin: 0 0 3mm; white-space: pre-wrap; word-break: break-word;
+        page-break-inside: avoid; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+
+  .lede { font-size: 10.6pt; line-height: 1.5; color: var(--mid); margin-bottom: 4mm; }
+
+  table { width: 100%; border-collapse: collapse; margin: 0 0 4mm; font-size: 9.1pt;
+          page-break-inside: avoid; }
+  th { text-align: left; font: 600 7.6pt/1 "Helvetica Neue", sans-serif; letter-spacing: .1em;
+       text-transform: uppercase; color: var(--faint); padding: 0 3mm 1.6mm 0;
+       border-bottom: 1px solid var(--ink); }
+  td { padding: 1.8mm 3mm 1.8mm 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; padding-right: 5mm; }
+  table.loose td:first-child { white-space: normal; }
+
+  .step { page-break-inside: avoid; margin-bottom: 5mm; }
+  .step > .head { display: flex; align-items: baseline; gap: 3mm; margin-bottom: 1.6mm; }
+  .step .n { font-family: Georgia, serif; font-size: 15pt; color: var(--accent);
+             line-height: 1; min-width: 7mm; }
+  .step .t { font-family: Georgia, serif; font-size: 11.4pt; font-weight: 600; }
+  .step .body { padding-left: 10mm; }
+
+  .callout { background: var(--wash); border-left: 2.5px solid var(--accent);
+             padding: 3mm 4mm; margin: 0 0 4mm; page-break-inside: avoid; }
+  .callout .label { font: 600 7.4pt/1 "Helvetica Neue", sans-serif; letter-spacing: .14em;
+                    text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 1.5mm; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .diagram { font-family: "SF Mono", Menlo, monospace; font-size: 7.8pt; line-height: 1.45;
+             border: 1px solid var(--rule); padding: 4mm; margin: 0 0 4mm; white-space: pre;
+             page-break-inside: avoid; overflow: hidden; }
+
+  .cols { display: flex; gap: 8mm; page-break-inside: avoid; }
+  .cols > div { flex: 1; }
+
+  .repo { border: 1.5px solid var(--ink); padding: 4mm 4.5mm; margin: 5mm 0 0; page-break-inside: avoid; }
+  .repo .label { font: 600 7.4pt/1 "Helvetica Neue", sans-serif; letter-spacing: .14em;
+                 text-transform: uppercase; color: var(--faint); }
+  .repo .url { font-family: Georgia, serif; font-size: 12.5pt; margin: 1.5mm 0 2.5mm; word-break: break-all; }
+  .repo pre { margin: 0; }
+
+  footer { margin-top: 9mm; padding-top: 3mm; border-top: 1px solid var(--rule);
+           font-size: 8.2pt; color: var(--faint); page-break-inside: avoid; }
+  .break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="kicker">Build guide &middot; one board, one API key</div>
+  <h1>Mikkey</h1>
+  <p class="standfirst">A keychain-sized AI buddy who physically cannot speak.
+  He only sings. That was a design decision and I regret it.</p>
+</div>
+
+<p class="lede">Mikkey hangs off your keys. His screen is his mouth, animated in sync with his own
+audio so he looks like he's forming the words. He has a microphone, so he hears you — ask him
+something in English, Russian, Kazakh or Mandarin and he sings the answer back in the language you
+used. He wears a small 3D-printed hat. It does nothing. It stays.</p>
+
+<p>This guide takes you from nothing to a singing keychain in about half an hour. You need one
+off-the-shelf board and one API key. Everything else is in the repo.</p>
+
+<div class="repo">
+  <div class="label">Start here</div>
+  <div class="url">github.com/jinglebells2020/mikkey</div>
+  <pre><code>git clone https://github.com/jinglebells2020/mikkey.git
+cd mikkey</code></pre>
+</div>
+
+<h2><span class="num">1</span>What you need</h2>
+
+<table class="loose">
+  <tr><th style="width:34%">Thing</th><th>Notes</th></tr>
+  <tr><td>M5StickS3</td><td>The whole build. ESP32-S3-PICO-1-N8R8, 8&nbsp;MB flash + 8&nbsp;MB PSRAM,
+    1.14&Prime; LCD, ES8311 audio codec with a MEMS microphone and AW8737 amplifier, 6-axis IMU,
+    250&nbsp;mAh battery — screen, mic, speaker and power already inside, nothing to wire.
+    <br><span style="color:var(--faint)">shop.m5stack.com/products/m5sticks3-esp32s3-mini-iot-dev-kit</span></td></tr>
+  <tr><td>A laptop</td><td>macOS in this guide (the helper scripts are bash and use
+    <code>ipconfig</code>/<code>scutil</code>). The Python side is portable; the two shell scripts
+    need small edits on Linux.</td></tr>
+  <tr><td>Fish Audio API key</td><td><strong>Required.</strong> This is his voice and his entire
+    personality. Sign up at fish.audio and make a key — the guide uses the S2.1 Pro model.</td></tr>
+  <tr><td>OpenRouter API key</td><td>Optional. This is his brain, for answering questions he hears.
+    Without it he still sings everything you type and every scripted line; he just can't improvise.</td></tr>
+  <tr><td>A 3D-printed hat</td><td>Entirely optional. Does nothing. Recommended.</td></tr>
+</table>
+
+<h2><span class="num">2</span>How it works</h2>
+
+<p>The stick is the body; your laptop is the brain. They talk over USB serial, or over TCP once the
+stick joins WiFi. <strong>The device is the authority over the link</strong> — it announces itself with
+<code>POLL</code> on whichever transport it is reading, and the laptop only pushes audio in reply.</p>
+
+<div class="diagram">  [ M5StickS3 ]  &lt;---- USB serial  OR  TCP over WiFi ----&gt;  [ laptop ]
+   screen / mic                                         mikkey_server.py
+   speaker / button                                      :8090 http   :8091 tcp
+
+   hold the button --&gt; mic audio --&gt; faster-whisper --&gt; OpenRouter (in character)
+                                                                     |
+   speaker + mouth &lt;-- PCM + envelope &lt;-- Fish Audio S2.1 &lt;----------+</div>
+
+<table>
+  <tr><th style="width:34%">Piece</th><th>What it does</th></tr>
+  <tr><td>Fish Audio S2.1 Pro</td><td>Sings every line. You direct the delivery in square brackets,
+    like a session singer: <code>[breathy, sing-song, like a lullaby]</code>. Same words, different
+    character. This is why Mikkey exists — with a flat voice there is no Mikkey.</td></tr>
+  <tr><td>faster-whisper</td><td>His ears, running locally on the laptop. Auto-detects the language
+    among an allowlist so short noisy clips don't wander off into Finnish.</td></tr>
+  <tr><td>OpenRouter</td><td>His brain. One short sung line per answer, in the language you spoke,
+    with an English direction tag.</td></tr>
+  <tr><td>Mouth-sync envelope</td><td>The laptop computes a loudness envelope alongside the audio and
+    ships both. The face opens and closes on the envelope, so he looks like he's forming the words.</td></tr>
+  <tr><td>M5Unified</td><td>The Arduino library behind the screen, speaker, mic, IMU and button.</td></tr>
+</table>
+
+<h2><span class="num">3</span>Build it</h2>
+
+<div class="step">
+  <div class="head"><span class="n">1</span><span class="t">Python side</span></div>
+  <div class="body">
+    <pre><code>python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt</code></pre>
+    <p>Pulls in the Fish Audio SDK, faster-whisper, numpy, pyserial and sounddevice. The first run
+    downloads the whisper model (a few hundred MB), once.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><span class="n">2</span><span class="t">Keys</span></div>
+  <div class="body">
+    <pre><code>cp .env.example .env
+<span class="c"># then edit .env:</span>
+FISH_API_KEY=sk-fish-your-key-here
+OPENROUTER_API_KEY=sk-or-your-key-here   <span class="c"># optional, the brain</span></code></pre>
+    <p><code>.env</code> is gitignored. Keep it that way — never commit it.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><span class="n">3</span><span class="t">Arduino toolchain</span></div>
+  <div class="body">
+    <pre><code>brew install arduino-cli
+arduino-cli core update-index --additional-urls \
+  https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+arduino-cli core install esp32:esp32 --additional-urls \
+  https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+arduino-cli lib install M5Unified</code></pre>
+    <p>Known-good here: arduino-cli 1.4.1, esp32 core 3.3.8, M5Unified 0.2.20, M5GFX 0.2.27.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><span class="n">4</span><span class="t">Tell him where the laptop is</span></div>
+  <div class="body">
+    <p>Plug the stick in over USB, then:</p>
+    <pre><code>./set_wifi.sh "your-network" "your-password"</code></pre>
+    <p>That writes <code>firmware/mikkey/wifi_config.h</code> (gitignored — it holds your WiFi
+    password) with your laptop's mDNS name and current IP, then compiles and flashes in one go.
+    USB alone is enough to get him singing; WiFi is what frees him from the cable.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><span class="n">5</span><span class="t">Flash by hand, if you'd rather</span></div>
+  <div class="body">
+    <pre><code>FQBN="esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB"
+arduino-cli compile --fqbn "$FQBN" firmware/mikkey
+arduino-cli upload  --fqbn "$FQBN" -p /dev/cu.usbmodem* firmware/mikkey</code></pre>
+    <p>Those flags matter: <code>CDCOnBoot=cdc</code> gives you the USB serial link, and
+    <code>PSRAM=opi</code> is what lets him hold a whole clip in memory before playing it.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><span class="n">6</span><span class="t">Start the brain</span></div>
+  <div class="body">
+    <pre><code>./run.sh</code></pre>
+    <p>Preflight checks, then the server with auto-restart and timestamped logs. It pre-generates
+    every line in <code>script.yaml</code> at startup, so they play instantly later. Leave it running.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><span class="n">7</span><span class="t">Make him sing</span></div>
+  <div class="body">
+    <p>In a second terminal:</p>
+    <pre><code>.venv/bin/python mikkey_type.py
+
+mikkey&gt; Hello, I am Mikkey, and I live on your keys.</code></pre>
+    <p>That's it. A blue dot in the top-left corner of his screen means the TCP link is up; grey
+    means he's talking over USB instead. Both work.</p>
+  </div>
+</div>
+
+<h2><span class="num">4</span>Living with him</h2>
+
+<table class="loose">
+  <tr><th style="width:34%">Do this</th><th>He does this</th></tr>
+  <tr><td>Tap the button</td><td>Sings the next line of <code>script.yaml</code>, in order.</td></tr>
+  <tr><td>Hold the button</td><td>Push-to-talk. Speak, release, and he sings an answer back in the
+    language you used.</td></tr>
+  <tr><td><code>mikkey_type.py</code></td><td>Type a line, he sings it. <code>/dir &lt;words&gt;</code> sets
+    the standing direction; a typed <code>[tag]</code> overrides it for one line. <code>/ls</code>,
+    <code>/l &lt;n|id&gt;</code>, <code>/next</code> and <code>/goto</code> drive the script from the keyboard.</td></tr>
+  <tr><td><code>localhost:8090/studio</code></td><td>The same thing in a browser: two fields,
+    <em>direction</em> and <em>line</em>. Change only the direction and sing again — that contrast is
+    the whole demo.</td></tr>
+  <tr><td><code>localhost:8090/preview</code></td><td>His face on your screen, so you can see the
+    animation without squinting at a 1.14&Prime; LCD.</td></tr>
+  <tr><td>Look in <code>out/</code></td><td>Every line he has ever sung, as an audio master.
+    <code>out/takes.log</code> records what played, when, and which file it is.</td></tr>
+</table>
+
+<h2><span class="num">5</span>Make him yours</h2>
+
+<table class="loose">
+  <tr><th style="width:34%">To change</th><th>Edit</th></tr>
+  <tr><td>What he says</td><td><code>script.yaml</code>. Each line has an id and text; changing the
+    text regenerates the audio on the next server start.</td></tr>
+  <tr><td>How he says it</td><td>The bracket tag at the front of any line. <code>[sung like a stadium
+    rock anthem, powerful, shouty]</code> and <code>[breathy, sing-song, like a lullaby]</code> on the
+    same words is the demo worth doing first.</td></tr>
+  <tr><td>Who he is</td><td>The <code>SYSTEM</code> prompt in <code>mikkey_server.py</code> — his
+    character, the one-short-line rule, and the rule that he answers in the language he was spoken to.</td></tr>
+  <tr><td>His face</td><td><code>FACE_STYLE</code> in <code>firmware/mikkey/mikkey.ino</code>:
+    2 = 1-bit pop-star line art, 1 = a full-screen grid face, 0 = landscape scenes. The line art is
+    ASCII in <code>tools/mj_art.py</code> — run it to regenerate the header and the
+    <code>/mj</code> preview. <code>FACE_ROTATION</code> picks which end is up, for your hat.</td></tr>
+  <tr><td>His voice</td><td><code>model</code> in <code>script.yaml</code>. Pin a specific voice with
+    <code>reference_id</code>.</td></tr>
+  <tr><td>Languages he'll accept</td><td><code>MIKKEY_LANGS</code> (default <code>en,ru,kk,zh</code>).
+    An allowlist beats free auto-detection on short, noisy clips.</td></tr>
+</table>
+
+<h2><span class="num">6</span>Things that will otherwise cost you an hour</h2>
+
+<div class="callout">
+  <span class="label">WiFi — the one that really bites</span>
+  <p>Home routers with band steering or a weak 2.4&nbsp;GHz radio will simply refuse the stick. The
+  reliable fallback is a phone hotspot with <strong>Maximize Compatibility</strong> turned on. The
+  stick prints <code>dbg wifi …</code> on USB serial: reason 2 or 4 means the access point never
+  answered, 15 means the WPA2 handshake timed out. USB works regardless, so a stubborn network
+  never blocks you.</p>
+</div>
+
+<div class="callout">
+  <span class="label">USB serial — do not regress this</span>
+  <p>Host writes must be paced at roughly 250&nbsp;kB/s or the USB CDC link stalls permanently, and
+  the receive ring silently drops bytes if you flood it while the firmware is drawing. The server
+  already paces streams at about 1.4&times; real-time. If you rewrite the transport, keep the pacing.</p>
+</div>
+
+<div class="callout">
+  <span class="label">Battery</span>
+  <p>250&nbsp;mAh is under an hour of singing. For a long session, run him off a USB power bank.</p>
+</div>
+
+<div class="callout">
+  <span class="label">Kazakh</span>
+  <p>Whisper detects Russian and Mandarin reliably but hears Kazakh as Turkish, at both
+  <code>base</code> and <code>small</code>. Pin the language on <code>/studio</code> before a Kazakh
+  exchange, then set it back to auto.</p>
+</div>
+
+<h2><span class="num">7</span>When something is wrong</h2>
+
+<table class="loose">
+  <tr><th style="width:38%">Symptom</th><th>Cause and fix</th></tr>
+  <tr><td>"mikkey_server.py is not running"</td><td>Start <code>./run.sh</code> first. The terminal
+    and the browser tools are both clients of it.</td></tr>
+  <tr><td>Server won't start</td><td>Missing <code>FISH_API_KEY</code> in <code>.env</code>, or no
+    <code>.venv</code>. The preflight in <code>run.sh</code> names which.</td></tr>
+  <tr><td>Nothing on USB</td><td>No <code>/dev/cu.usbmodem*</code> — reseat the cable, and use a data
+    cable, not a charge-only one.</td></tr>
+  <tr><td>He's silent but the screen works</td><td>Look at the server log. Generation failures print
+    a reason; a failed line is requeued rather than skipped.</td></tr>
+  <tr><td>A line sounds wrong</td><td>Change only the bracket tag and sing it again. Keep the words
+    and punctuation identical — an added ellipsis rephrases the whole line.</td></tr>
+  <tr><td>Where's the audio?</td><td><code>out/&lt;id&gt;.mp3</code> or <code>.wav</code>, indexed by
+    <code>out/takes.log</code>.</td></tr>
+</table>
+
+<p style="margin-top:5mm">Everything he can fail at, he fails out loud: a broken brain or a dead TTS
+call becomes a sung apology, a dropped link requeues the clip and replays it, and errors put a face
+and a reason on the screen. He is never silently broken.</p>
+
+<footer>
+  Mikkey — built with an M5StickS3, programmed with Claude, voiced entirely through Fish Audio's
+  S2.1 Pro API. Source, firmware and this guide: github.com/jinglebells2020/mikkey
+</footer>
+
+</body>
+</html>

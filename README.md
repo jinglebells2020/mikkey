@@ -5,6 +5,10 @@ S2.1). The stick records your question (hold the button), the laptop
 transcribes it (faster-whisper), writes a reply in character (OpenRouter,
 gpt-oss-120b), and streams the sung answer back with a mouth-sync envelope.
 
+**New here?** [docs/Mikkey-Build-Guide.pdf](docs/Mikkey-Build-Guide.pdf) takes you from
+`git clone` to a singing keychain in about half an hour — the board to buy, the keys you
+need, flashing, and the WiFi/USB gotchas. This README is the working reference.
+
 ## Architecture
 
 ```
